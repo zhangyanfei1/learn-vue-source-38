@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Document</title>
+  <script src="./vue.js"></script>
+</head>
+<body>
+  <div id="app">{{gsd}}</div>
+  <script>
+    const vm = new Vue({
+      el: '#app',
+      // template: '<div class="container" style="background-color: red;" @click="test">{{gsd}}</div>',
+      // template: '',
+      components: {
+        'aaa': {
+          template: '<h1>我是一个child组件</h1>'
+        }
+      },
+      render(h){
+        return h('div',  { style: { color: 'red' }}, [h('aaa', { style: { color: 'red' }}, 'bcd')])
+      },
+      data: {
+        gsd: 'bbb'
+      }
+    })
+  </script>
+</body>
+</html>
