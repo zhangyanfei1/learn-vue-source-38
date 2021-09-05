@@ -64,7 +64,6 @@ export function _createElement (
         undefined, undefined, context
       )
     }
-    console.log('asdvnode', vnode)
     return vnode
   }
 }

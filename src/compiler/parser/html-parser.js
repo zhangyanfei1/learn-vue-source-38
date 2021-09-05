@@ -27,11 +27,9 @@ export function parseHTML (html, options) {
   const isUnaryTag = options.isUnaryTag || no
   let index = 0
   let last, lastTag
-  debugger
   while (html) {
     last = html
     if (!lastTag || !isPlainTextElement(lastTag)) {
-      debugger
       let textEnd = html.indexOf('<')
       if (textEnd === 0) {
         // Comment:
@@ -182,7 +180,6 @@ export function parseHTML (html, options) {
         attrs[i].end = args.end
       }
     }
-    debugger
     if (!unary) {
       stack.push({ tag: tagName, lowerCasedTag: tagName.toLowerCase(), attrs: attrs, start: match.start, end: match.end })
       lastTag = tagName
@@ -194,7 +191,6 @@ export function parseHTML (html, options) {
   }
 
   function parseEndTag (tagName, start, end) {
-    debugger
     let pos, lowerCasedTagName
     if (start == null) start = index
     if (end == null) end = index

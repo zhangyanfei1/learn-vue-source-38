@@ -445,16 +445,23 @@ function _createElement (
         undefined, undefined, context
       );
     }
-    console.log('asdvnode', vnode);
     return vnode
   }
 }
 
+function installRenderHelpers (target) {
+  target._v = createTextVNode;
+}
+
 function initRender (vm) {
   const options = vm.$options;
+
+  vm._c = (a, b, c, d) => createElement(vm, a, b, c, d, false);
   vm.$createElement = (a, b, c, d) => createElement(vm, a, b, c, d, true);
 }
 function renderMixin (Vue) {
+  installRenderHelpers(Vue.prototype);
+
   Vue.prototype._render = function () {
     const vm = this;
     const { render, _parentVnode } = vm.$options;
@@ -763,7 +770,91 @@ const isUnaryTag = makeMap(
   'link,meta,param,source,track,wbr'
 );
 
+function baseWarn (msg, range) {
+  console.error(`[Vue compiler]: ${msg}`);
+}
+
+function pluckModuleFunction (
+  modules,
+  key
+){
+  return modules
+    ? modules.map(m => m[key]).filter(_ => _)
+    : []
+}
+
+
+function getAndRemoveAttr (
+  el,
+  name,
+  removeFromMap
+){
+  let val;
+  if ((val = el.attrsMap[name]) != null) {
+    const list = el.attrsList;
+    for (let i = 0, l = list.length; i < l; i++) {
+      if (list[i].name === name) {
+        list.splice(i, 1);
+        break
+      }
+    }
+  }
+  if (removeFromMap) {
+    delete el.attrsMap[name];
+  }
+  return val
+}
+
+function transformNode (el, options) {
+  const warn = options.warn || baseWarn;
+  const staticClass = getAndRemoveAttr(el, 'class');
+  if (staticClass) {
+    el.staticClass = JSON.stringify(staticClass);
+  }
+}
+
+function genData (el) {
+  let data = '';
+  if (el.staticClass) {
+    data += `staticClass:${el.staticClass},`;
+  }
+  if (el.classBinding) {
+    data += `class:${el.classBinding},`;
+  }
+  return data
+}
+
+var klass = {
+  transformNode,
+  genData
+}
+
+function genData$1 (el) {
+  let data = '';
+  if (el.staticStyle) {
+    data += `staticStyle:${el.staticStyle},`;
+  }
+  if (el.styleBinding) {
+    data += `style:(${el.styleBinding}),`;
+  }
+  return data
+}
+var style = {
+  genData: genData$1
+}
+
+var model = {
+  
+}
+
+var modules$1 = [
+  klass,
+  style,
+  model
+]
+
 const baseOptions = {
+  modules: modules$1,
   isUnaryTag
 };
 
@@ -836,11 +927,9 @@ function parseHTML (html, options) {
   const isUnaryTag = options.isUnaryTag || no;
   let index = 0;
   let last, lastTag;
-  debugger
   while (html) {
     last = html;
     if (!lastTag || !isPlainTextElement(lastTag)) {
-      debugger
       let textEnd = html.indexOf('<');
       if (textEnd === 0) {
         // Comment:
@@ -982,7 +1071,6 @@ function parseHTML (html, options) {
         attrs[i].end = args.end;
       }
     }
-    debugger
     if (!unary) {
       stack.push({ tag: tagName, lowerCasedTag: tagName.toLowerCase(), attrs: attrs, start: match.start, end: match.end });
       lastTag = tagName;
@@ -994,7 +1082,6 @@ function parseHTML (html, options) {
   }
 
   function parseEndTag (tagName, start, end) {
-    debugger
     let pos, lowerCasedTagName;
     if (start == null) start = index;
     if (end == null) end = index;
@@ -1046,32 +1133,96 @@ function parseHTML (html, options) {
   }
 }
 
-function baseWarn (msg, range) {
-  console.error(`[Vue compiler]: ${msg}`);
-}
-
 /**
  * Convert HTML string to AST.
  */
 
  let warn;
+ let transforms;
+
+ function createASTElement (
+  tag,
+  attrs,
+  parent
+) {
+  return {
+    type: 1,
+    tag,
+    attrsList: attrs,
+    attrsMap: makeAttrsMap(attrs),
+    rawAttrsMap: {},
+    parent,
+    children: []
+  }
+}
+
+function makeAttrsMap (attrs) {
+  const map = {};
+  for (let i = 0, l = attrs.length; i < l; i++) {
+    map[attrs[i].name] = attrs[i].value;
+  }
+  return map
+}
+
  function parse (template, options){
+  transforms = pluckModuleFunction(options.modules, 'transformNode');
+
+  const stack = [];
   warn = options.warn || baseWarn;
   let root;
   let currentParent;
+  let inVPre = false;
+
+  function closeElement (element) {
+    if (!inVPre && !element.processed) {
+      element = processElement(element, options);
+    }
+  }
   parseHTML(template, {
     warn,
     expectHTML: options.expectHTML,
     isUnaryTag: options.isUnaryTag,
     shouldKeepComment: options.comments,
     start (tag, attrs, unary, start, end) {
-      console.log('start', tag);
+      let element = createASTElement(tag, attrs, currentParent);
+      if (!root) {
+        root = element;
+      }
+      if (!unary) {
+        currentParent = element;
+        stack.push(element);
+      } else {
+        closeElement(element);
+      }
     },
     end (tag, start, end) {
-      console.log('end', tag);
+      const element = stack[stack.length - 1];
+      // pop stack
+      stack.length -= 1;
+      currentParent = stack[stack.length - 1];
+      if (options.outputSourceRange) {
+        element.end = end;
+      }
+      closeElement(element);
     },
     chars (text, start, end) {
-      console.log('chars', text);
+      const children = currentParent.children;
+      if (text) {
+        let child;
+        if (text !== ' ' || !children.length) {
+          child = {
+            type: 3,
+            text
+          };
+        }
+        if (child) {
+          if (options.outputSourceRange) {
+            child.start = start;
+            child.end = end;
+          }
+          children.push(child);
+        }
+      }
     },
     comment (text, start, end) {
       if (currentParent) {
@@ -1091,8 +1242,108 @@ function baseWarn (msg, range) {
   return root
  }
 
+ function processElement (
+  element,
+  options
+) {
+  for (let i = 0; i < transforms.length; i++) {
+    element = transforms[i](element, options) || element;
+  }
+  return element
+}
+
+class CodegenState {
+  constructor (options) {
+    this.options = options;
+    this.transforms = pluckModuleFunction(options.modules, 'transformCode');
+    this.dataGenFns = pluckModuleFunction(options.modules, 'genData');
+  }
+}
+
 function generate (ast, options){
-  
+  const state = new CodegenState(options);
+  const code = ast ? genElement(ast, state) : '_c("div")';
+  return {
+    render: `with(this){return ${code}}`,
+    staticRenderFns: state.staticRenderFns
+  }
+}
+
+function genElement (el, state) {
+  {
+    let code;
+    if (el.component) {
+
+    } else {
+      let data;
+      {
+        data = genData$2(el, state);
+        console.log(data);
+      }
+      const children = el.inlineTemplate ? null : genChildren(el, state, true);
+      code = `_c('${el.tag}'${
+        data ? `,${data}` : '' // data
+      }${
+        children ? `,${children}` : '' // children
+      })`;
+    }
+    for (let i = 0; i < state.transforms.length; i++) {
+      code = state.transforms[i](el, code);
+    }
+    return code
+  }
+}
+
+function genNode (node, state) {
+  if (node.type === 1) {
+    return genElement(node, state)
+  } else if (node.type === 3 && node.isComment) {
+    return genComment(node)
+  } else {
+    return genText(node)
+  }
+}
+
+function genText (text) {
+  return `_v(${text.type === 2
+    ? text.expression // no need for () because already wrapped in _s()
+    : transformSpecialNewlines(JSON.stringify(text.text))
+  })`
+}
+
+function genComment (comment) {
+  return `_e(${JSON.stringify(comment.text)})`
+}
+
+function genChildren (
+  el,
+  state,
+  checkSkip,
+  altGenElement,
+  altGenNode
+){
+  const children = el.children;
+  if (children.length) {
+    const el = children[0];
+    const gen = altGenNode || genNode;
+    return `[${children.map(c => gen(c, state)).join(',')}]`
+  }
+}
+
+function genData$2 (el, state) {
+  let data = '{';
+  for (let i = 0; i < state.dataGenFns.length; i++) {
+    data += state.dataGenFns[i](el);
+  }
+  data = data.replace(/,$/, '') + '}';
+  return data
+}
+
+// #3895, #4268
+function transformSpecialNewlines (text) {
+  return text
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029')
 }
 
 const createCompiler = createCompilerCreator(function baseCompile (
@@ -1100,9 +1351,9 @@ const createCompiler = createCompilerCreator(function baseCompile (
   options
 ) {
   const ast = parse(template.trim(), options);
-  console.log('gsdast', ast);
   if (options.optimize !== false) {
-    // optimize(ast, options)
+    //优化，静态化
+    
   }
   const code = generate(ast, options);
   return {
