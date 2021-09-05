@@ -76,3 +76,9 @@ export function isObject (obj){
     ? val => map[val.toLowerCase()]
     : val => map[val]
 }
+
+const _toString = Object.prototype.toString
+
+export function isPlainObject (obj) {
+  return _toString.call(obj) === '[object Object]'
+}

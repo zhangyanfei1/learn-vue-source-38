@@ -1,4 +1,5 @@
 import { initProxy } from './proxy'
+import { initState } from './state'
 import { initRender } from './render'
 import { initLifecycle } from './lifecycle'
 import { mergeOptions } from '../util/index'
@@ -18,6 +19,8 @@ export function initMixin (Vue) {
 
     initLifecycle(vm) 
     initRender(vm)
+
+    initState(vm)
 
     if (vm.$options.el) {
       vm.$mount(vm.$options.el)
