@@ -1,4 +1,5 @@
 import { parseHTML } from './html-parser'
+import { parseText } from './text-parser'
 import {
   baseWarn,
   pluckModuleFunction
@@ -8,6 +9,7 @@ import {
  */
 
  export let warn
+ let delimiters
  let transforms
 
  export function createASTElement (
@@ -36,7 +38,7 @@ function makeAttrsMap (attrs) {
 
  export function parse (template, options){
   transforms = pluckModuleFunction(options.modules, 'transformNode')
-
+  delimiters = options.delimiters
   const stack = []
   warn = options.warn || baseWarn
   let root
@@ -78,9 +80,15 @@ function makeAttrsMap (attrs) {
     chars (text, start, end) {
       const children = currentParent.children
       if (text) {
+        let res
         let child
-        if (false) {
-
+        if (!inVPre && text !== ' ' && (res = parseText(text, delimiters))) {
+          child = {
+            type: 2,
+            expression: res.expression,
+            tokens: res.tokens,
+            text
+          }
         } else if (text !== ' ' || !children.length) {
           child = {
             type: 3,

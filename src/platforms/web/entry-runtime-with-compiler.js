@@ -38,6 +38,7 @@ Vue.prototype.$mount = function (
         outputSourceRange: true,
         shouldDecodeNewlines,
         shouldDecodeNewlinesForHref,
+        delimiters: options.delimiters
       }, this)
       options.render = render
       options.staticRenderFns = staticRenderFns

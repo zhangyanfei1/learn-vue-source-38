@@ -95,7 +95,20 @@ function isPlainObject (obj) {
   return _toString.call(obj) === '[object Object]'
 }
 
+function toString (val) {
+  return val == null
+    ? ''
+    : Array.isArray(val) || (isPlainObject(val) && val.toString === _toString)
+      ? JSON.stringify(val, null, 2)
+      : String(val)
+}
+
 const unicodeRegExp = /a-zA-Z\u00B7\u00C0-\u00D6\u00D8-\u00F6\u00F8-\u037D\u037F-\u1FFF\u200C-\u200D\u203F-\u2040\u2070-\u218F\u2C00-\u2FEF\u3001-\uD7FF\uF900-\uFDCF\uFDF0-\uFFFD/;
+
+function isReserved (str) {
+  const c = (str + '').charCodeAt(0);
+  return c === 0x24 || c === 0x5F
+}
 
 const inBrowser = typeof window !== 'undefined';
 
@@ -171,6 +184,24 @@ function handleError (err, vm, info) {
   console.log('handleError');
 }
 
+const sharedPropertyDefinition = {
+  enumerable: true,
+  configurable: true,
+  get: noop,
+  set: noop
+};
+
+function proxy (target, sourceKey, key) {
+  sharedPropertyDefinition.get = function proxyGetter () {
+    return this[sourceKey][key]
+  };
+  sharedPropertyDefinition.set = function proxySetter (val) {
+    this[sourceKey][key] = val;
+  };
+  Object.defineProperty(target, key, sharedPropertyDefinition);
+}
+
+
 function initState (vm) {
   const opts = vm.$options;
   if (opts.data) {
@@ -185,10 +216,18 @@ function initData (vm) {
   data = vm._data = typeof data === 'function'
     ? getData(data, vm)
     : data || {};
-  debugger
     if (!isPlainObject(data)) {
       data = {};
     }
+  const keys = Object.keys(data);
+  let i = keys.length;
+  while (i--) {
+    const key = keys[i];
+    if (!isReserved(key)) {
+      proxy(vm, `_data`, key);
+    }
+  }
+
 }
 
 function getData (data, vm){
@@ -493,6 +532,7 @@ function _createElement (
 }
 
 function installRenderHelpers (target) {
+  target._s = toString;
   target._v = createTextVNode;
 }
 
@@ -512,6 +552,7 @@ function renderMixin (Vue) {
 
     let vnode;
     vnode = render.call(vm._renderProxy, vm.$createElement);
+    debugger
     vnode.parent = _parentVnode;
     return vnode
   };
@@ -1178,11 +1219,55 @@ function parseHTML (html, options) {
   }
 }
 
+function parseFilters (exp){
+  return exp
+}
+
+const defaultTagRE = /\{\{((?:.|\r?\n)+?)\}\}/g;
+const buildRegex = function () {
+
+};
+
+function parseText (
+  text,
+  delimiters
+){
+  const tagRE = delimiters ? buildRegex(delimiters) : defaultTagRE;
+  if (!tagRE.test(text)) {
+    return
+  }
+  const tokens = [];
+  const rawTokens = [];
+  let lastIndex = tagRE.lastIndex = 0;
+  let match, index, tokenValue;
+  while ((match = tagRE.exec(text))) {
+    index = match.index;
+    // push text token
+    if (index > lastIndex) {
+      rawTokens.push(tokenValue = text.slice(lastIndex, index));
+      tokens.push(JSON.stringify(tokenValue));
+    }
+    const exp = parseFilters(match[1].trim());
+    tokens.push(`_s(${exp})`);
+    rawTokens.push({ '@binding': exp });
+    lastIndex = index + match[0].length;
+  }
+  if (lastIndex < text.length) {
+    rawTokens.push(tokenValue = text.slice(lastIndex));
+    tokens.push(JSON.stringify(tokenValue));
+  }
+  return {
+    expression: tokens.join('+'),
+    tokens: rawTokens
+  }
+}
+
 /**
  * Convert HTML string to AST.
  */
 
  let warn;
+ let delimiters;
  let transforms;
 
  function createASTElement (
@@ -1211,7 +1296,7 @@ function makeAttrsMap (attrs) {
 
  function parse (template, options){
   transforms = pluckModuleFunction(options.modules, 'transformNode');
-
+  delimiters = options.delimiters;
   const stack = [];
   warn = options.warn || baseWarn;
   let root;
@@ -1253,8 +1338,16 @@ function makeAttrsMap (attrs) {
     chars (text, start, end) {
       const children = currentParent.children;
       if (text) {
+        let res;
         let child;
-        if (text !== ' ' || !children.length) {
+        if (!inVPre && text !== ' ' && (res = parseText(text, delimiters))) {
+          child = {
+            type: 2,
+            expression: res.expression,
+            tokens: res.tokens,
+            text
+          };
+        } else if (text !== ' ' || !children.length) {
           child = {
             type: 3,
             text
@@ -1457,6 +1550,7 @@ Vue.prototype.$mount = function (
         outputSourceRange: true,
         shouldDecodeNewlines,
         shouldDecodeNewlinesForHref,
+        delimiters: options.delimiters
       }, this);
       options.render = render;
       options.staticRenderFns = staticRenderFns;
