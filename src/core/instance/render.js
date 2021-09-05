@@ -8,7 +8,6 @@ export function renderMixin (Vue) {
   Vue.prototype._render = function () {
     const vm = this
     const { render, _parentVnode } = vm.$options
-    debugger
     if (_parentVnode) {
 
     }

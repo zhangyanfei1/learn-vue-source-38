@@ -96,7 +96,6 @@ export function createPatchFunction (backend) {
     }
 
     const insertedVnodeQueue = []
-    debugger
     if (isUndef(oldVnode)) {
       createElm(vnode, insertedVnodeQueue)
     } else {

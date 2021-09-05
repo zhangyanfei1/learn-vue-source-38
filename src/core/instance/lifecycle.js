@@ -29,7 +29,6 @@ export function initLifecycle (vm) {
 
 export function lifecycleMixin (Vue) {
   Vue.prototype._update = function (vnode, hydrating) {
-    debugger
     const vm = this
     const prevEl = vm.$el
     const prevVnode = vm._vnode

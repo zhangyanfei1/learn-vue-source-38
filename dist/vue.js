@@ -97,6 +97,24 @@ function isObject (obj){
   return obj !== null && typeof obj === 'object'
 }
 
+/**
+ * Make a map and return a function for checking if a key
+ * is in that map.
+ */
+ function makeMap (
+  str,
+  expectsLowerCase
+) {
+  const map = Object.create(null);
+  const list = str.split(',');
+  for (let i = 0; i < list.length; i++) {
+    map[list[i]] = true;
+  }
+  return expectsLowerCase
+    ? val => map[val.toLowerCase()]
+    : val => map[val]
+}
+
 var config = ({
   optionMergeStrategies: Object.create(null),
   /**
@@ -109,6 +127,10 @@ var config = ({
    */
   parsePlatformTagName: identity
 })
+
+const unicodeRegExp = /a-zA-Z\u00B7\u00C0-\u00D6\u00D8-\u00F6\u00F8-\u037D\u037F-\u1FFF\u200C-\u200D\u203F-\u2040\u2070-\u218F\u2C00-\u2FEF\u3001-\uD7FF\uF900-\uFDCF\uFDF0-\uFFFD/;
+
+const inBrowser = typeof window !== 'undefined';
 
 function resolveAsset (
   options,
@@ -207,7 +229,6 @@ function initLifecycle (vm) {
 
 function lifecycleMixin (Vue) {
   Vue.prototype._update = function (vnode, hydrating) {
-    debugger
     const vm = this;
     const prevEl = vm.$el;
     const prevVnode = vm._vnode;
@@ -437,7 +458,6 @@ function renderMixin (Vue) {
   Vue.prototype._render = function () {
     const vm = this;
     const { render, _parentVnode } = vm.$options;
-    debugger
     vm.$vnode = _parentVnode;
 
     let vnode;
@@ -676,7 +696,6 @@ function createPatchFunction (backend) {
     }
 
     const insertedVnodeQueue = [];
-    debugger
     if (isUndef(oldVnode)) {
       createElm(vnode, insertedVnodeQueue);
     } else {
@@ -739,6 +758,374 @@ Vue.prototype.$mount = function (
   }
 }
 
+const isUnaryTag = makeMap(
+  'area,base,br,col,embed,frame,hr,img,input,isindex,keygen,' +
+  'link,meta,param,source,track,wbr'
+);
+
+const baseOptions = {
+  isUnaryTag
+};
+
+function createFunction (code, errors) {
+  try {
+    return new Function(code)
+  } catch (err) {
+    errors.push({ err, code });
+    return noop
+  }
+}
+
+function createCompileToFunctionFn (compile) {
+  //entry-runtime  中的  compileToFunctions，（生成render、staticRenderFns函数）
+  return function compileToFunctions (template, options, vm){
+    const compiled = compile(template, options);
+    const res = {};
+    const fnGenErrors = [];
+    res.render = createFunction(compiled.render, fnGenErrors);
+    res.staticRenderFns = {}; // TODO
+    return res
+  }
+}
+
+function createCompilerCreator (baseCompile) {
+  return function createCompiler (baseOptions) {
+    function compile (template, options){
+      const finalOptions = Object.create(baseOptions);
+      if (options) {
+        // copy other options
+        for (const key in options) {
+          if (key !== 'modules' && key !== 'directives') {
+            finalOptions[key] = options[key];
+          }
+        }
+      }
+      const compiled = baseCompile(template.trim(), finalOptions);
+      return compiled
+    }
+    return {
+      compile,
+      compileToFunctions: createCompileToFunctionFn(compile)
+    }
+  }
+}
+
+const attribute = /^\s*([^\s"'<>\/=]+)(?:\s*(=)\s*(?:"([^"]*)"+|'([^']*)'+|([^\s"'=<>`]+)))?/;
+const dynamicArgAttribute = /^\s*((?:v-[\w-]+:|@|:|#)\[[^=]+?\][^\s"'<>\/=]*)(?:\s*(=)\s*(?:"([^"]*)"+|'([^']*)'+|([^\s"'=<>`]+)))?/;
+const ncname = `[a-zA-Z_][\\-\\.0-9_a-zA-Z${unicodeRegExp.source}]*`;
+const qnameCapture = `((?:${ncname}\\:)?${ncname})`;
+const startTagOpen = new RegExp(`^<${qnameCapture}`);
+const startTagClose = /^\s*(\/?)>/;
+const endTag = new RegExp(`^<\\/${qnameCapture}[^>]*>`);
+const doctype = /^<!DOCTYPE [^>]+>/i;
+const comment = /^<!\--/;
+const conditionalComment = /^<!\[/;
+// Special Elements (can contain anything)
+const isPlainTextElement = makeMap('script,style,textarea', true);
+
+const encodedAttr = /&(?:lt|gt|quot|amp|#39);/g;
+
+function decodeAttr (value, shouldDecodeNewlines) {
+  const re = shouldDecodeNewlines ? encodedAttrWithNewLines : encodedAttr;
+  return value.replace(re, match => decodingMap[match])
+}
+
+function parseHTML (html, options) {
+  const stack = [];
+  const expectHTML = options.expectHTML;
+  const isUnaryTag = options.isUnaryTag || no;
+  let index = 0;
+  let last, lastTag;
+  debugger
+  while (html) {
+    last = html;
+    if (!lastTag || !isPlainTextElement(lastTag)) {
+      debugger
+      let textEnd = html.indexOf('<');
+      if (textEnd === 0) {
+        // Comment:
+        if (comment.test(html)) {
+          const commentEnd = html.indexOf('-->');
+
+          if (commentEnd >= 0) {
+            if (options.shouldKeepComment) {
+              options.comment(html.substring(4, commentEnd), index, index + commentEnd + 3);
+            }
+            advance(commentEnd + 3);
+            continue
+          }
+        }
+
+        if (conditionalComment.test(html)) {
+          const conditionalEnd = html.indexOf(']>');
+
+          if (conditionalEnd >= 0) {
+            advance(conditionalEnd + 2);
+            continue
+          } 
+        }
+
+        // Doctype:
+        const doctypeMatch = html.match(doctype);
+        if (doctypeMatch) {
+          advance(doctypeMatch[0].length);
+          continue
+        }
+
+        // End tag:
+        const endTagMatch = html.match(endTag);
+        if (endTagMatch) {
+          const curIndex = index;
+          advance(endTagMatch[0].length);
+          parseEndTag(endTagMatch[1], curIndex, index);
+          continue
+        }
+
+        // Start tag:
+        const startTagMatch = parseStartTag();
+        if (startTagMatch) {
+          handleStartTag(startTagMatch);
+          continue
+        }
+      }
+
+      let text, rest, next;
+      if (textEnd >= 0) {
+        rest = html.slice(textEnd);
+        while (
+          !endTag.test(rest) &&
+          !startTagOpen.test(rest) &&
+          !comment.test(rest) &&
+          !conditionalComment.test(rest)
+        ) {
+          // < in plain text, be forgiving and treat it as text
+          next = rest.indexOf('<', 1);
+          if (next < 0) break
+          textEnd += next;
+          rest = html.slice(textEnd);
+        }
+        text = html.substring(0, textEnd);
+      }
+      if (textEnd < 0) {
+        text = html;
+      }
+
+      if (text) {
+        advance(text.length);
+      }
+
+      if (options.chars && text) {
+        options.chars(text, index - text.length, index);
+      }
+    } else {
+
+    }
+    if (html === last) {
+      options.chars && options.chars(html);
+      if (!stack.length && options.warn) {
+        options.warn(`Mal-formatted tag at end of template: "${html}"`, { start: index + html.length });
+      }
+      break
+    }
+  }
+
+  function advance (n) {
+    index += n;
+    html = html.substring(n);
+  }
+
+  function parseStartTag () {
+    const start = html.match(startTagOpen);
+    if (start) {
+      const match = {
+        tagName: start[1],
+        attrs: [],
+        start: index
+      };
+      advance(start[0].length);
+      let end, attr;
+      while (!(end = html.match(startTagClose)) && (attr = html.match(dynamicArgAttribute) || html.match(attribute))) {
+        attr.start = index;
+        advance(attr[0].length);
+        attr.end = index;
+        match.attrs.push(attr);
+      }
+      if (end) {
+        match.unarySlash = end[1];
+        advance(end[0].length);
+        match.end = index;
+        return match
+      }
+    }
+  }
+
+  function handleStartTag (match) {
+    const tagName = match.tagName;
+    const unarySlash = match.unarySlash;
+
+    const unary = isUnaryTag(tagName) || !!unarySlash;
+
+    const l = match.attrs.length;
+    const attrs = new Array(l);
+    for (let i = 0; i < l; i++) {
+      const args = match.attrs[i];
+      const value = args[3] || args[4] || args[5] || '';
+      const shouldDecodeNewlines = tagName === 'a' && args[1] === 'href'
+        ? options.shouldDecodeNewlinesForHref
+        : options.shouldDecodeNewlines;
+      attrs[i] = {
+        name: args[1],
+        value: decodeAttr(value, shouldDecodeNewlines)
+      };
+      if (options.outputSourceRange) {
+        attrs[i].start = args.start + args[0].match(/^\s*/).length;
+        attrs[i].end = args.end;
+      }
+    }
+    debugger
+    if (!unary) {
+      stack.push({ tag: tagName, lowerCasedTag: tagName.toLowerCase(), attrs: attrs, start: match.start, end: match.end });
+      lastTag = tagName;
+    }
+
+    if (options.start) {
+      options.start(tagName, attrs, unary, match.start, match.end);
+    }
+  }
+
+  function parseEndTag (tagName, start, end) {
+    debugger
+    let pos, lowerCasedTagName;
+    if (start == null) start = index;
+    if (end == null) end = index;
+
+    // Find the closest opened tag of the same type
+    if (tagName) {
+      lowerCasedTagName = tagName.toLowerCase();
+      for (pos = stack.length - 1; pos >= 0; pos--) {
+        if (stack[pos].lowerCasedTag === lowerCasedTagName) {
+          break
+        }
+      }
+    } else {
+      // If no tag name is provided, clean shop
+      pos = 0;
+    }
+
+    if (pos >= 0) {
+      // Close all the open elements, up the stack
+      for (let i = stack.length - 1; i >= pos; i--) {
+        if ((i > pos || !tagName) &&
+          options.warn
+        ) {
+          options.warn(
+            `tag <${stack[i].tag}> has no matching end tag.`,
+            { start: stack[i].start, end: stack[i].end }
+          );
+        }
+        if (options.end) {
+          options.end(stack[i].tag, start, end);
+        }
+      }
+
+      // Remove the open elements from the stack
+      stack.length = pos;
+      lastTag = pos && stack[pos - 1].tag;
+    } else if (lowerCasedTagName === 'br') {
+      if (options.start) {
+        options.start(tagName, [], true, start, end);
+      }
+    } else if (lowerCasedTagName === 'p') {
+      if (options.start) {
+        options.start(tagName, [], false, start, end);
+      }
+      if (options.end) {
+        options.end(tagName, start, end);
+      }
+    }
+  }
+}
+
+function baseWarn (msg, range) {
+  console.error(`[Vue compiler]: ${msg}`);
+}
+
+/**
+ * Convert HTML string to AST.
+ */
+
+ let warn;
+ function parse (template, options){
+  warn = options.warn || baseWarn;
+  let root;
+  let currentParent;
+  parseHTML(template, {
+    warn,
+    expectHTML: options.expectHTML,
+    isUnaryTag: options.isUnaryTag,
+    shouldKeepComment: options.comments,
+    start (tag, attrs, unary, start, end) {
+      console.log('start', tag);
+    },
+    end (tag, start, end) {
+      console.log('end', tag);
+    },
+    chars (text, start, end) {
+      console.log('chars', text);
+    },
+    comment (text, start, end) {
+      if (currentParent) {
+        const child = {
+          type: 3,
+          text,
+          isComment: true
+        };
+        // if (options.outputSourceRange) {
+        //   child.start = start
+        //   child.end = end
+        // }
+        currentParent.children.push(child);
+      }
+    }
+  });
+  return root
+ }
+
+function generate (ast, options){
+  
+}
+
+const createCompiler = createCompilerCreator(function baseCompile (
+  template,
+  options
+) {
+  const ast = parse(template.trim(), options);
+  console.log('gsdast', ast);
+  if (options.optimize !== false) {
+    // optimize(ast, options)
+  }
+  const code = generate(ast, options);
+  return {
+    ast,
+    render: code.render,
+    staticRenderFns: code.staticRenderFns
+  }
+});
+
+const { compile, compileToFunctions } = createCompiler(baseOptions);
+
+let div;
+function getShouldDecode (href) {
+  div = div || document.createElement('div');
+  div.innerHTML = href ? `<a href="\n"/>` : `<div a="\n"/>`;
+  return div.innerHTML.indexOf('&#10;') > 0
+}
+
+// #3663: IE encodes newlines inside attribute values while other browsers don't
+const shouldDecodeNewlines = inBrowser ? getShouldDecode(false) : false;
+// #6828: chrome encodes content in a[href]
+const shouldDecodeNewlinesForHref = inBrowser ? getShouldDecode(true) : false;
+
 const mount = Vue.prototype.$mount;
 Vue.prototype.$mount = function (
   el,
@@ -769,7 +1156,15 @@ Vue.prototype.$mount = function (
       
     }
 
-    
+    if (template) {
+      const { render, staticRenderFns } = compileToFunctions(template, {
+        outputSourceRange: true,
+        shouldDecodeNewlines,
+        shouldDecodeNewlinesForHref,
+      }, this);
+      options.render = render;
+      options.staticRenderFns = staticRenderFns;
+    }
   }
   return mount.call(this, el, hydrating)
 };

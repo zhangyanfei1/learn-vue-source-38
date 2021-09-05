@@ -1,5 +1,7 @@
 import Vue from './runtime/index'
 import { query } from './util/index'
+import { compileToFunctions } from './compiler/index'
+import { shouldDecodeNewlines, shouldDecodeNewlinesForHref } from './util/compat'
 
 const mount = Vue.prototype.$mount
 Vue.prototype.$mount = function (
@@ -32,7 +34,13 @@ Vue.prototype.$mount = function (
     }
 
     if (template) {
-      // options.render = render
+      const { render, staticRenderFns } = compileToFunctions(template, {
+        outputSourceRange: true,
+        shouldDecodeNewlines,
+        shouldDecodeNewlinesForHref,
+      }, this)
+      options.render = render
+      options.staticRenderFns = staticRenderFns
     }
   }
   return mount.call(this, el, hydrating)
