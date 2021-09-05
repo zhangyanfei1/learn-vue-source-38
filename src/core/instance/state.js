@@ -6,6 +6,8 @@ import {
   handleError
 } from '../util/index'
 
+
+import {observe} from '../observer/index'
 const sharedPropertyDefinition = {
   enumerable: true,
   configurable: true,
@@ -51,7 +53,7 @@ function initData (vm) {
       proxy(vm, `_data`, key)
     }
   }
-
+  observe(data, true /* asRootData */)
 }
 
 export function getData (data, vm){

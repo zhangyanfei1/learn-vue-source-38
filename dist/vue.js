@@ -110,6 +110,15 @@ function isReserved (str) {
   return c === 0x24 || c === 0x5F
 }
 
+function def (obj, key, val, enumerable) {
+  Object.defineProperty(obj, key, {
+    value: val,
+    enumerable: !!enumerable,
+    writable: true,
+    configurable: true
+  });
+}
+
 const inBrowser = typeof window !== 'undefined';
 
 var config = ({
@@ -184,6 +193,121 @@ function handleError (err, vm, info) {
   console.log('handleError');
 }
 
+class VNode {
+  constructor (
+    tag,
+    data,
+    children,
+    text,
+    elm,
+    context,
+    componentOptions,
+    asyncFactory
+  ) {
+    this.tag = tag;
+    this.data = data;
+    this.children = children;
+    this.text = text;
+    this.elm = elm;
+    this.context = context;
+    this.componentOptions = componentOptions;
+    this.asyncFactory = asyncFactory;
+  }
+}
+
+function createTextVNode (val) {
+  return new VNode(undefined, undefined, undefined, String(val))
+}
+
+function observe (value, asRootData) {
+  if (!isObject(value) || value instanceof VNode) {
+    return
+  }
+  let ob;
+  if (hasOwn(value, '__ob__') && value.__ob__ instanceof Observer) {
+    ob = value.__ob__;
+  } else if (
+    Array.isArray(value) || isPlainObject(value)
+  ){
+    ob = new Observer(value);
+  }
+  return ob
+}
+
+class Observer {
+  constructor (value) {
+    this.value = value;
+    def(value, '__ob__', this);
+    if (Array.isArray(value)) {
+      
+    } else {
+      this.walk(value);
+    }
+  }
+
+  walk (obj) {
+    const keys = Object.keys(obj);
+    for (let i = 0; i < keys.length; i++) {
+      defineReactive(obj, keys[i]);
+    }
+  }
+}
+
+function defineReactive (
+  obj,
+  key,
+  val,
+  customSetter,
+  shallow
+){
+  const property = Object.getOwnPropertyDescriptor(obj, key);
+  if (property && property.configurable === false) {
+    return
+  }
+  const getter = property && property.get;
+  const setter = property && property.set;
+  if ((!getter || setter) && arguments.length === 2) {
+    val = obj[key];
+  }
+
+  //递归
+  let childOb = observe(val);
+  Object.defineProperty(obj, key, {
+    enumerable: true,
+    configurable: true,
+    get: function reactiveGetter () {
+      const value = getter ? getter.call(obj) : val;
+      // if (Dep.target) {
+      //   dep.depend()
+      //   if (childOb) {
+      //     childOb.dep.depend()
+      //     if (Array.isArray(value)) {
+      //       dependArray(value)
+      //     }
+      //   }
+      // }
+      return value
+    },
+    set: function reactiveSetter (newVal) {
+      debugger
+      const value = getter ? getter.call(obj) : val;
+      /* eslint-disable no-self-compare */
+      if (newVal === value || (newVal !== newVal && value !== value)) {
+        return
+      }
+      // #7981: for accessor properties without setter
+      if (getter && !setter) return
+      if (setter) {
+        setter.call(obj, newVal);
+      } else {
+        val = newVal;
+      }
+      childOb = observe(newVal);
+      // dep.notify()
+    }
+  });
+}
+
 const sharedPropertyDefinition = {
   enumerable: true,
   configurable: true,
@@ -227,7 +351,7 @@ function initData (vm) {
       proxy(vm, `_data`, key);
     }
   }
-
+  observe(data, true /* asRootData */);
 }
 
 function getData (data, vm){
@@ -241,32 +365,6 @@ function getData (data, vm){
   } finally {
     // popTarget()
   }
-}
-
-class VNode {
-  constructor (
-    tag,
-    data,
-    children,
-    text,
-    elm,
-    context,
-    componentOptions,
-    asyncFactory
-  ) {
-    this.tag = tag;
-    this.data = data;
-    this.children = children;
-    this.text = text;
-    this.elm = elm;
-    this.context = context;
-    this.componentOptions = componentOptions;
-    this.asyncFactory = asyncFactory;
-  }
-}
-
-function createTextVNode (val) {
-  return new VNode(undefined, undefined, undefined, String(val))
 }
 
 /**
