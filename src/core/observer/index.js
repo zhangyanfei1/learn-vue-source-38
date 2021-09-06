@@ -1,4 +1,5 @@
 import VNode from '../vdom/vnode'
+import Dep from './dep'
 import {
   isPlainObject,
   def,
@@ -26,6 +27,7 @@ export function observe (value, asRootData) {
 export class Observer {
   constructor (value) {
     this.value = value
+    this.dep = new Dep()
     def(value, '__ob__', this)
     if (Array.isArray(value)) {
       
@@ -40,6 +42,12 @@ export class Observer {
       defineReactive(obj, keys[i])
     }
   }
+
+  observeArray (items) {
+    for (let i = 0, l = items.length; i < l; i++) {
+      observe(items[i])
+    }
+  }
 }
 
 export function defineReactive (
@@ -49,6 +57,7 @@ export function defineReactive (
   customSetter,
   shallow
 ){
+  const dep = new Dep()
   const property = Object.getOwnPropertyDescriptor(obj, key)
   if (property && property.configurable === false) {
     return
@@ -66,15 +75,15 @@ export function defineReactive (
     configurable: true,
     get: function reactiveGetter () {
       const value = getter ? getter.call(obj) : val
-      // if (Dep.target) {
-      //   dep.depend()
+      if (Dep.target) {
+        dep.depend()
       //   if (childOb) {
       //     childOb.dep.depend()
       //     if (Array.isArray(value)) {
       //       dependArray(value)
       //     }
       //   }
-      // }
+      }
       return value
     },
     set: function reactiveSetter (newVal) {
@@ -92,7 +101,7 @@ export function defineReactive (
         val = newVal
       }
       childOb = observe(newVal)
-      // dep.notify()
+      dep.notify()
     }
   })
 }

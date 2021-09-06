@@ -120,6 +120,12 @@ function def (obj, key, val, enumerable) {
 }
 
 const inBrowser = typeof window !== 'undefined';
+const UA = inBrowser && window.navigator.userAgent.toLowerCase();
+const isIE = UA && /msie|trident/.test(UA);
+const isIOS = (UA && /iphone|ipad|ipod|ios/.test(UA));
+function isNative (Ctor) {
+  return typeof Ctor === 'function' && /native code/.test(Ctor.toString())
+}
 
 var config = ({
   optionMergeStrategies: Object.create(null),
@@ -193,6 +199,64 @@ function handleError (err, vm, info) {
   console.log('handleError');
 }
 
+// import { handleError } from './error'
+
+const callbacks = [];
+let pending = false;
+
+function flushCallbacks () {
+  pending = false;
+  const copies = callbacks.slice(0);
+  callbacks.length = 0;
+  for (let i = 0; i < copies.length; i++) {
+    copies[i]();
+  }
+}
+
+let timerFunc;
+
+if (typeof Promise !== 'undefined' && isNative(Promise)) {
+  const p = Promise.resolve();
+  timerFunc = () => {
+    p.then(flushCallbacks);
+    // In problematic UIWebViews, Promise.then doesn't completely break, but
+    // it can get stuck in a weird state where callbacks are pushed into the
+    // microtask queue but the queue isn't being flushed, until the browser
+    // needs to do some other work, e.g. handle a timer. Therefore we can
+    // "force" the microtask queue to be flushed by adding an empty timer.
+    if (isIOS) setTimeout(noop);
+  };
+  
+} else if (typeof setImmediate !== 'undefined' && isNative(setImmediate)) {
+  timerFunc = () => {
+    setImmediate(flushCallbacks);
+  };
+} else {
+  // Fallback to setTimeout.
+  timerFunc = () => {
+    setTimeout(flushCallbacks, 0);
+  };
+}
+
+function nextTick (cb, ctx) {
+  debugger
+  callbacks.push(() => {
+    if (cb) {
+      try {
+        cb.call(ctx);
+      } catch (e) {
+        //TODO
+        // handleError(e, ctx, 'nextTick')
+      }
+    }
+  });
+
+  if (!pending) {
+    pending = true;
+    timerFunc();
+  }
+}
+
 class VNode {
   constructor (
     tag,
@@ -219,6 +283,45 @@ function createTextVNode (val) {
   return new VNode(undefined, undefined, undefined, String(val))
 }
 
+let uid = 0;
+class Dep {
+  constructor () {
+    this.id = uid++;
+    this.subs = [];
+  }
+
+  addSub (sub) {
+    this.subs.push(sub);
+  }
+
+  depend () {
+    if (Dep.target) {
+      Dep.target.addDep(this);
+    }
+  }
+
+  notify () {
+    // stabilize the subscriber list first
+    const subs = this.subs.slice();
+    for (let i = 0, l = subs.length; i < l; i++) {
+      subs[i].update();
+    }
+  }
+}
+
+Dep.target = null;
+const targetStack = [];
+
+function pushTarget (target) {
+  targetStack.push(target);
+  Dep.target = target;
+}
+
+function popTarget () {
+  targetStack.pop();
+  Dep.target = targetStack[targetStack.length - 1];
+}
+
 function observe (value, asRootData) {
   if (!isObject(value) || value instanceof VNode) {
     return
@@ -237,6 +340,7 @@ function observe (value, asRootData) {
 class Observer {
   constructor (value) {
     this.value = value;
+    this.dep = new Dep();
     def(value, '__ob__', this);
     if (Array.isArray(value)) {
       
@@ -251,6 +355,12 @@ class Observer {
       defineReactive(obj, keys[i]);
     }
   }
+
+  observeArray (items) {
+    for (let i = 0, l = items.length; i < l; i++) {
+      observe(items[i]);
+    }
+  }
 }
 
 function defineReactive (
@@ -260,6 +370,7 @@ function defineReactive (
   customSetter,
   shallow
 ){
+  const dep = new Dep();
   const property = Object.getOwnPropertyDescriptor(obj, key);
   if (property && property.configurable === false) {
     return
@@ -277,15 +388,15 @@ function defineReactive (
     configurable: true,
     get: function reactiveGetter () {
       const value = getter ? getter.call(obj) : val;
-      // if (Dep.target) {
-      //   dep.depend()
+      if (Dep.target) {
+        dep.depend();
       //   if (childOb) {
       //     childOb.dep.depend()
       //     if (Array.isArray(value)) {
       //       dependArray(value)
       //     }
       //   }
-      // }
+      }
       return value
     },
     set: function reactiveSetter (newVal) {
@@ -303,7 +414,7 @@ function defineReactive (
         val = newVal;
       }
       childOb = observe(newVal);
-      // dep.notify()
+      dep.notify();
     }
   });
 }
@@ -367,6 +478,45 @@ function getData (data, vm){
   }
 }
 
+const queue = [];
+let has = {};
+let waiting = false;
+let flushing = false;
+let index = 0;
+
+function flushSchedulerQueue () {
+  debugger
+  let watcher, id;
+  for (index = 0; index < queue.length; index++) {
+    watcher = queue[index];
+    id = watcher.id;
+    has[id] = null;
+    watcher.run();
+  }
+}
+function queueWatcher (watcher) {
+  const id = watcher.id;
+  if (has[id] == null) {
+    has[id] = true;
+    if (!flushing) {
+      queue.push(watcher);
+    } else {
+      let i = queue.length - 1;
+      while (i > index && queue[i].id > watcher.id) {
+        i--;
+      }
+      queue.splice(i + 1, 0, watcher);
+    }
+
+    if (!waiting) {
+      waiting = true;
+
+      //启动异步任务
+      nextTick(flushSchedulerQueue);
+    }
+  }
+}
+
 /**
  * A watcher parses an expression, collects dependencies,
  * and fires callback when the expression value changes.
@@ -380,7 +530,81 @@ function getData (data, vm){
     options,
     isRenderWatcher
   ) {
-    expOrFn();
+    this.vm = vm;
+    this.deps = [];
+    this.active = true;
+    this.newDeps = [];
+    this.newDepIds = new Set();
+    this.depIds = new Set();
+    if (typeof expOrFn === 'function') {
+      this.getter = expOrFn;
+    } else {
+
+    }
+
+    this.value = this.lazy
+      ? undefined
+      : this.get();
+
+  }
+
+  get () {
+    pushTarget(this); //当前渲染watcher
+    let value;
+    const vm = this.vm;
+    try {
+      value = this.getter.call(vm, vm); //TODO
+    } catch (e) {
+      if (this.user) {
+        handleError(e, vm, `getter for watcher "${this.expression}"`);
+      } else {
+        throw e
+      }
+    } finally {
+      // "touch" every property so they are all tracked as
+      // dependencies for deep watching
+      if (this.deep) {
+        // traverse(value)
+      }
+      popTarget();
+      // this.cleanupDeps()
+    }
+    return value
+  }
+
+  /**
+   * Subscriber interface.
+   * Will be called when a dependency changes.
+   */
+   update () {
+     debugger
+    if (this.lazy) {
+      this.dirty = true;
+    } else if (this.sync) {
+      this.run();
+    } else {
+      queueWatcher(this);
+    }
+  }
+
+  addDep (dep) {
+    const id = dep.id;
+    if (!this.newDepIds.has(id)) {
+      this.newDepIds.add(id);
+      this.newDeps.push(dep);
+      if (!this.depIds.has(id)) {
+        dep.addSub(this);
+      }
+    }
+  }
+
+  run () {
+    if (this.active) {
+      const value = this.get();
+      // if () {
+
+      // }
+    }
   }
  }
 
