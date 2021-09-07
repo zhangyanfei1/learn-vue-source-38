@@ -438,6 +438,7 @@ function proxy (target, sourceKey, key) {
 
 
 function initState (vm) {
+  debugger
   const opts = vm.$options;
   if (opts.data) {
     initData(vm);
@@ -896,7 +897,7 @@ function initMixin (Vue) {
 
     initLifecycle(vm); 
     initRender(vm);
-
+    debugger
     initState(vm);
 
     if (vm.$options.el) {

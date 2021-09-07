@@ -19,7 +19,7 @@ export function initMixin (Vue) {
 
     initLifecycle(vm) 
     initRender(vm)
-
+    debugger
     initState(vm)
 
     if (vm.$options.el) {
