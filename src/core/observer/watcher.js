@@ -63,7 +63,6 @@ import { queueWatcher } from './scheduler'
    * Will be called when a dependency changes.
    */
    update () {
-     debugger
     if (this.lazy) {
       this.dirty = true
     } else if (this.sync) {

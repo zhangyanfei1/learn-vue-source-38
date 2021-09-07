@@ -103,6 +103,22 @@ function toString (val) {
       : String(val)
 }
 
+function cached(fn) {
+  const cache = Object.create(null);
+  return (function cachedFn (str) {
+    const hit = cache[str];
+    return hit || (cache[str] = fn(str))
+  })
+}
+
+
+function extend (to, _from) {
+  for (const key in _from) {
+    to[key] = _from[key];
+  }
+  return to
+}
+
 const unicodeRegExp = /a-zA-Z\u00B7\u00C0-\u00D6\u00D8-\u00F6\u00F8-\u037D\u037F-\u1FFF\u200C-\u200D\u203F-\u2040\u2070-\u218F\u2C00-\u2FEF\u3001-\uD7FF\uF900-\uFDCF\uFDF0-\uFFFD/;
 
 function isReserved (str) {
@@ -137,7 +153,9 @@ var config = ({
      /**
    * Parse the real tag name for the specific platform.
    */
-  parsePlatformTagName: identity
+  parsePlatformTagName: identity,
+  warnHandler: null,
+  silent: false
 })
 
 function resolveAsset (
@@ -239,7 +257,6 @@ if (typeof Promise !== 'undefined' && isNative(Promise)) {
 }
 
 function nextTick (cb, ctx) {
-  debugger
   callbacks.push(() => {
     if (cb) {
       try {
@@ -256,6 +273,25 @@ function nextTick (cb, ctx) {
     timerFunc();
   }
 }
+
+let warn = noop;
+let tip = noop;
+let generateComponentTrace = (noop);
+
+const hasConsole = typeof console !== 'undefined';
+warn = (msg, vm) => {
+  const trace = vm ? generateComponentTrace(vm) : '';
+
+  if (config.warnHandler) { 
+    config.warnHandler.call(null, msg, vm, trace);
+  } else if (hasConsole && (!config.silent)) {
+    console.error(`[Vue warn]: ${msg}${trace}`);
+  }
+};
+
+generateComponentTrace = vm => {
+
+};
 
 class VNode {
   constructor (
@@ -400,7 +436,6 @@ function defineReactive (
       return value
     },
     set: function reactiveSetter (newVal) {
-      debugger
       const value = getter ? getter.call(obj) : val;
       /* eslint-disable no-self-compare */
       if (newVal === value || (newVal !== newVal && value !== value)) {
@@ -438,7 +473,6 @@ function proxy (target, sourceKey, key) {
 
 
 function initState (vm) {
-  debugger
   const opts = vm.$options;
   if (opts.data) {
     initData(vm);
@@ -486,7 +520,6 @@ let flushing = false;
 let index = 0;
 
 function flushSchedulerQueue () {
-  debugger
   let watcher, id;
   for (index = 0; index < queue.length; index++) {
     watcher = queue[index];
@@ -578,7 +611,6 @@ function queueWatcher (watcher) {
    * Will be called when a dependency changes.
    */
    update () {
-     debugger
     if (this.lazy) {
       this.dirty = true;
     } else if (this.sync) {
@@ -875,7 +907,6 @@ function renderMixin (Vue) {
 
     let vnode;
     vnode = render.call(vm._renderProxy, vm.$createElement);
-    debugger
     vnode.parent = _parentVnode;
     return vnode
   };
@@ -897,7 +928,6 @@ function initMixin (Vue) {
 
     initLifecycle(vm); 
     initRender(vm);
-    debugger
     initState(vm);
 
     if (vm.$options.el) {
@@ -1262,10 +1292,41 @@ var modules$1 = [
   model
 ]
 
+function model$1 (
+  el,
+  dir,
+  _warn
+) {
+
+}
+
+function text (el, dir) {
+
+}
+
+function html (el, dir) {
+
+}
+
+var directives = {
+  model: model$1,
+  text,
+  html
+}
+
 const baseOptions = {
   modules: modules$1,
+  directives,
   isUnaryTag
 };
+
+function generateCodeFrame (
+  source,
+  start = 0,
+  end = source.length
+) {
+  
+}
 
 function createFunction (code, errors) {
   try {
@@ -1277,22 +1338,130 @@ function createFunction (code, errors) {
 }
 
 function createCompileToFunctionFn (compile) {
+  const cache = Object.create(null);
   //entry-runtime  中的  compileToFunctions，（生成render、staticRenderFns函数）
   return function compileToFunctions (template, options, vm){
+    options = extend({}, options);
+    const warn$$1 = options.warn || warn;
+    delete options.warn;
+
+    {
+      try {
+        new Function('return 1');
+      } catch (e) {
+        if (e.toString().match(/unsafe-eval|CSP/)) {
+          warn$$1(
+            'It seems you are using the standalone build of Vue.js in an ' +
+            'environment with Content Security Policy that prohibits unsafe-eval. ' +
+            'The template compiler cannot work in this environment. Consider ' +
+            'relaxing the policy to allow unsafe-eval or pre-compiling your ' +
+            'templates into render functions.'
+          );
+        }
+      }
+    }
+
+    // check cache
+    const key = options.delimiters
+      ? String(options.delimiters) + template
+      : template;
+    if (cache[key]) {
+      return cache[key]
+    }
+
     const compiled = compile(template, options);
+
+    {
+      if (compiled.errors && compiled.errors.length) {
+        if (options.outputSourceRange) {
+          compiled.errors.forEach(e => {
+            warn$$1(
+              `Error compiling template:\n\n${e.msg}\n\n` +
+              generateCodeFrame(template, e.start, e.end),
+              vm
+            );
+          });
+        } else {
+          warn$$1(
+            `Error compiling template:\n\n${template}\n\n` +
+            compiled.errors.map(e => `- ${e}`).join('\n') + '\n',
+            vm
+          );
+        }
+        
+      }
+
+      if (compiled.tips && compiled.tips.length) {
+        if (options.outputSourceRange) {
+          compiled.tips.forEach(e => tip(e.msg, vm));
+        } else {
+          compiled.tips.forEach(msg => tip(msg, vm));
+        }
+      }
+    }
+
+
     const res = {};
     const fnGenErrors = [];
     res.render = createFunction(compiled.render, fnGenErrors);
-    res.staticRenderFns = {}; // TODO
-    return res
+    res.staticRenderFns = {};
+    {
+      if ((!compiled.errors || !compiled.errors.length) && fnGenErrors.length) {
+        warn$$1(
+          `Failed to generate render function:\n\n` +
+          fnGenErrors.map(({ err, code }) => `${err.toString()} in\n\n${code}\n`).join('\n'),
+          vm
+        );
+      }
+    }
+    return (cache[key] = res)
   }
+}
+
+function detectErrors (ast, warn) {
+  
 }
 
 function createCompilerCreator (baseCompile) {
   return function createCompiler (baseOptions) {
     function compile (template, options){
+      //合并 options   和  baseOptions
       const finalOptions = Object.create(baseOptions);
+      const errors = [];
+      const tips = [];
+      let warn = (msg, range, tip) => {
+        (tip ? tips : errors).push(msg);
+      };
       if (options) {
+        if (options.outputSourceRange) {
+          const leadingSpaceLength = template.match(/^\s*/)[0].length;
+
+          warn = (msg, range, tip) => {
+            const data = { msg };
+            if (range) {
+              if (range.start != null) {
+                data.start = range.start + leadingSpaceLength;
+              }
+              if (range.end != null) {
+                data.end = range.end + leadingSpaceLength;
+              }
+            }
+            (tip ? tips : errors).push(data);
+          };
+        }
+        debugger
+        if (options.modules) {
+          finalOptions.modules =
+            (baseOptions.modules || []).concat(options.modules);
+        }
+
+        // merge custom directives
+        if (options.directives) {
+          finalOptions.directives = extend(
+            Object.create(baseOptions.directives || null),
+            options.directives
+          );
+        }
         // copy other options
         for (const key in options) {
           if (key !== 'modules' && key !== 'directives') {
@@ -1300,7 +1469,16 @@ function createCompilerCreator (baseCompile) {
           }
         }
       }
+
+      finalOptions.warn = warn;
+
+      //执行baseCompile
       const compiled = baseCompile(template.trim(), finalOptions);
+      {
+        detectErrors(compiled.ast, warn);
+      }
+      compiled.errors = errors;
+      compiled.tips = tips;
       return compiled
     }
     return {
@@ -1589,7 +1767,7 @@ function parseText (
  * Convert HTML string to AST.
  */
 
- let warn;
+ let warn$1;
  let delimiters;
  let transforms;
 
@@ -1621,7 +1799,7 @@ function makeAttrsMap (attrs) {
   transforms = pluckModuleFunction(options.modules, 'transformNode');
   delimiters = options.delimiters;
   const stack = [];
-  warn = options.warn || baseWarn;
+  warn$1 = options.warn || baseWarn;
   let root;
   let currentParent;
   let inVPre = false;
@@ -1632,7 +1810,7 @@ function makeAttrsMap (attrs) {
     }
   }
   parseHTML(template, {
-    warn,
+    warn: warn$1,
     expectHTML: options.expectHTML,
     isUnaryTag: options.isUnaryTag,
     shouldKeepComment: options.comments,
@@ -1838,34 +2016,45 @@ const shouldDecodeNewlines = inBrowser ? getShouldDecode(false) : false;
 // #6828: chrome encodes content in a[href]
 const shouldDecodeNewlinesForHref = inBrowser ? getShouldDecode(true) : false;
 
+const idToTemplate = cached(id => {
+  const el = query(id);
+  return el && el.innerHTML
+});
+
 const mount = Vue.prototype.$mount;
 Vue.prototype.$mount = function (
   el,
   hydrating
 ){
   el = el && query(el);
-  const options = this.$options;
-  if (options._componentTag) {
-    let render = function (h) {
-      return h('div', '我是子组件')
-    };
-    options.render = render;
+  if (el === document.body || el === document.documentElement) {
+    warn(
+      `Do not mount Vue to <html> or <body> - mount to normal elements instead.`
+    );
+    return this
   }
+  const options = this.$options;
+  // if (options._componentTag) {
+  //   let render = function (h) {
+  //     return h('div', '我是子组件')
+  //   }
+  //   options.render = render
+  // }
 
   if (!options.render) { //只有在没有传入render的时候，才考虑使用模板
     let template = options.template;
     if (template) { //template几种不同传入方式处理
       if (typeof template === 'string') {
         if (template.charAt(0) === '#') {
-          
+          template = idToTemplate(template);
         }
       } else if (template.nodeType) {
-        
+        template = template.innerHTML;
       } else {
         return this
       }
     } else if (el) {
-      
+      template = getOuterHTML(el);
     }
 
     if (template) {
@@ -1881,6 +2070,18 @@ Vue.prototype.$mount = function (
   }
   return mount.call(this, el, hydrating)
 };
+
+function getOuterHTML (el) {
+  if (el.outerHTML) {
+    return el.outerHTML
+  } else {
+    const container = document.createElement('div');
+    container.appendChild(el.cloneNode(true));
+    return container.innerHTML
+  }
+}
+
+Vue.compile = compileToFunctions;
 
 return Vue;
 

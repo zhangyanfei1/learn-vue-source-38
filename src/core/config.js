@@ -12,5 +12,7 @@ export default ({
      /**
    * Parse the real tag name for the specific platform.
    */
-  parsePlatformTagName: identity
+  parsePlatformTagName: identity,
+  warnHandler: null,
+  silent: false
 })

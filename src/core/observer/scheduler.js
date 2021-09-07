@@ -8,7 +8,6 @@ let flushing = false
 let index = 0
 
 function flushSchedulerQueue () {
-  debugger
   let watcher, id
   for (index = 0; index < queue.length; index++) {
     watcher = queue[index]

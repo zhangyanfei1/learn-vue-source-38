@@ -40,7 +40,6 @@ if (typeof Promise !== 'undefined' && isNative(Promise)) {
 }
 
 export function nextTick (cb, ctx) {
-  debugger
   callbacks.push(() => {
     if (cb) {
       try {

@@ -27,7 +27,6 @@ export function proxy (target, sourceKey, key) {
 
 
 export function initState (vm) {
-  debugger
   const opts = vm.$options
   if (opts.data) {
     initData(vm)

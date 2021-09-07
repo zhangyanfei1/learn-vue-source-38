@@ -21,7 +21,6 @@ export function renderMixin (Vue) {
 
     let vnode
     vnode = render.call(vm._renderProxy, vm.$createElement)
-    debugger
     vnode.parent = _parentVnode
     return vnode
   }
