@@ -1,3 +1,5 @@
+export * from './element'
+
 /**
  * Query an element selector if it's not an element already.
  */

@@ -1,9 +1,19 @@
-import { pluckModuleFunction } from '../helpers'
+import { pluckModuleFunction, baseWarn } from '../helpers'
+import baseDirectives from '../directives/index'
+import { extend, no } from '../../shared/util'
 export class CodegenState {
   constructor (options) {
+    debugger
     this.options = options
+    this.warn = options.warn || baseWarn
     this.transforms = pluckModuleFunction(options.modules, 'transformCode')
     this.dataGenFns = pluckModuleFunction(options.modules, 'genData')
+    this.directives = extend(extend({}, baseDirectives), options.directives)
+    const isReservedTag = options.isReservedTag || no
+    this.maybeComponent = (el) => !!el.component || !isReservedTag(el.tag)
+    this.onceId = 0
+    this.staticRenderFns = []
+    this.pre = false
   }
 }
 
