@@ -3,7 +3,6 @@ import baseDirectives from '../directives/index'
 import { extend, no } from '../../shared/util'
 export class CodegenState {
   constructor (options) {
-    debugger
     this.options = options
     this.warn = options.warn || baseWarn
     this.transforms = pluckModuleFunction(options.modules, 'transformCode')
@@ -35,7 +34,7 @@ export function genElement (el, state) {
 
     } else {
       let data
-      if (true) {
+      if (!el.plain) {
         data = genData(el, state)
         console.log(data)
       }

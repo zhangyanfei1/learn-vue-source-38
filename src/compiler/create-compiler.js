@@ -28,7 +28,6 @@ export function createCompilerCreator (baseCompile) {
             (tip ? tips : errors).push(data)
           }
         }
-        debugger
         if (options.modules) {
           finalOptions.modules =
             (baseOptions.modules || []).concat(options.modules)

@@ -29,3 +29,7 @@ export function appendChild (node, child) {
 export function insertBefore (parentNode, newNode, referenceNode) {
   parentNode.insertBefore(newNode, referenceNode)
 }
+
+export function removeChild (node, child) {
+  node.removeChild(child)
+}

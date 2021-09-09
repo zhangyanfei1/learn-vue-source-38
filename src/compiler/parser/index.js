@@ -4,6 +4,7 @@ import { parseText } from './text-parser'
 import { no, extend, cached } from '../../shared/util'
 import { isIE, isServerRendering } from '../../core/util/env'
 import {
+  getBindingAttr,
   getAndRemoveAttr,
   baseWarn,
   pluckModuleFunction
@@ -99,7 +100,7 @@ function isTextTag (el) {
       element = processElement(element, options)
     }
 
-    if (!stack.length && element !== root) {
+    if (!stack.length && element !== root) { 
       // allow root elements with v-if, v-else-if and v-else
       if (root.if && (element.elseif || element.else)) {
         if (true) {
@@ -307,7 +308,6 @@ function isTextTag (el) {
       }
 
       const children = currentParent.children
-      debugger
       if (inPre || text.trim()) {
         //TODO
         // text = isTextTag(currentParent) ? text : decodeHTMLCached(text)
@@ -375,7 +375,7 @@ function isTextTag (el) {
   element,
   options
 ) {
-  // processKey(element)
+  processKey(element)
 
   // determine whether this is a plain element after
   // removing structural attributes
@@ -385,14 +385,14 @@ function isTextTag (el) {
     !element.attrsList.length
   )
 
-  // processRef(element)
-  // processSlotContent(element)
-  // processSlotOutlet(element)
-  // processComponent(element)
+  processRef(element)
+  processSlotContent(element)
+  processSlotOutlet(element)
+  processComponent(element)
   for (let i = 0; i < transforms.length; i++) {
     element = transforms[i](element, options) || element
   }
-  // processAttrs(element)
+  processAttrs(element)
   return element
 }
 
@@ -528,4 +528,318 @@ function processRef (el) {
     el.ref = ref
     el.refInFor = checkInFor(el)
   }
+}
+
+function processIfConditions (el, parent) {
+  const prev = findPrevElement(parent.children)
+  if (prev && prev.if) {
+    addIfCondition(prev, {
+      exp: el.elseif,
+      block: el
+    })
+  } else if (true) {
+    warn(
+      `v-${el.elseif ? ('else-if="' + el.elseif + '"') : 'else'} ` +
+      `used on element <${el.tag}> without corresponding v-if.`,
+      el.rawAttrsMap[el.elseif ? 'v-else-if' : 'v-else']
+    )
+  }
+}
+
+function findPrevElement (children){ //找到上一个元素
+  let i = children.length
+  while (i--) {
+    if (children[i].type === 1) {
+      return children[i]
+    } else {
+      if (true && children[i].text !== ' ') {
+        warn(
+          `text "${children[i].text.trim()}" between v-if and v-else(-if) ` +
+          `will be ignored.`,
+          children[i]
+        )
+      }
+      children.pop()
+    }
+  }
+}
+
+
+function processSlotContent (el) {
+  let slotScope
+  if (el.tag === 'template') {
+    slotScope = getAndRemoveAttr(el, 'scope')
+    /* istanbul ignore if */
+    if (true && slotScope) {
+      warn(
+        `the "scope" attribute for scoped slots have been deprecated and ` +
+        `replaced by "slot-scope" since 2.5. The new "slot-scope" attribute ` +
+        `can also be used on plain elements in addition to <template> to ` +
+        `denote scoped slots.`,
+        el.rawAttrsMap['scope'],
+        true
+      )
+    }
+    el.slotScope = slotScope || getAndRemoveAttr(el, 'slot-scope')
+  } else if ((slotScope = getAndRemoveAttr(el, 'slot-scope'))) {
+    /* istanbul ignore if */
+    if (true && el.attrsMap['v-for']) {
+      warn(
+        `Ambiguous combined usage of slot-scope and v-for on <${el.tag}> ` +
+        `(v-for takes higher priority). Use a wrapper <template> for the ` +
+        `scoped slot to make it clearer.`,
+        el.rawAttrsMap['slot-scope'],
+        true
+      )
+    }
+    el.slotScope = slotScope
+  }
+
+  // slot="xxx"
+  const slotTarget = getBindingAttr(el, 'slot')
+  if (slotTarget) {
+    el.slotTarget = slotTarget === '""' ? '"default"' : slotTarget
+    el.slotTargetDynamic = !!(el.attrsMap[':slot'] || el.attrsMap['v-bind:slot'])
+    // preserve slot as an attribute for native shadow DOM compat
+    // only for non-scoped slots.
+    if (el.tag !== 'template' && !el.slotScope) {
+      addAttr(el, 'slot', slotTarget, getRawBindingAttr(el, 'slot'))
+    }
+  }
+
+  // 2.6 v-slot syntax
+  // if (process.env.NEW_SLOT_SYNTAX) {
+  //   if (el.tag === 'template') {
+  //     // v-slot on <template>
+  //     const slotBinding = getAndRemoveAttrByRegex(el, slotRE)
+  //     if (slotBinding) {
+  //       if (process.env.NODE_ENV !== 'production') {
+  //         if (el.slotTarget || el.slotScope) {
+  //           warn(
+  //             `Unexpected mixed usage of different slot syntaxes.`,
+  //             el
+  //           )
+  //         }
+  //         if (el.parent && !maybeComponent(el.parent)) {
+  //           warn(
+  //             `<template v-slot> can only appear at the root level inside ` +
+  //             `the receiving component`,
+  //             el
+  //           )
+  //         }
+  //       }
+  //       const { name, dynamic } = getSlotName(slotBinding)
+  //       el.slotTarget = name
+  //       el.slotTargetDynamic = dynamic
+  //       el.slotScope = slotBinding.value || emptySlotScopeToken // force it into a scoped slot for perf
+  //     }
+  //   } else {
+  //     // v-slot on component, denotes default slot
+  //     const slotBinding = getAndRemoveAttrByRegex(el, slotRE)
+  //     if (slotBinding) {
+  //       if (process.env.NODE_ENV !== 'production') {
+  //         if (!maybeComponent(el)) {
+  //           warn(
+  //             `v-slot can only be used on components or <template>.`,
+  //             slotBinding
+  //           )
+  //         }
+  //         if (el.slotScope || el.slotTarget) {
+  //           warn(
+  //             `Unexpected mixed usage of different slot syntaxes.`,
+  //             el
+  //           )
+  //         }
+  //         if (el.scopedSlots) {
+  //           warn(
+  //             `To avoid scope ambiguity, the default slot should also use ` +
+  //             `<template> syntax when there are other named slots.`,
+  //             slotBinding
+  //           )
+  //         }
+  //       }
+  //       // add the component's children to its default slot
+  //       const slots = el.scopedSlots || (el.scopedSlots = {})
+  //       const { name, dynamic } = getSlotName(slotBinding)
+  //       const slotContainer = slots[name] = createASTElement('template', [], el)
+  //       slotContainer.slotTarget = name
+  //       slotContainer.slotTargetDynamic = dynamic
+  //       slotContainer.children = el.children.filter((c: any) => {
+  //         if (!c.slotScope) {
+  //           c.parent = slotContainer
+  //           return true
+  //         }
+  //       })
+  //       slotContainer.slotScope = slotBinding.value || emptySlotScopeToken
+  //       // remove children as they are returned from scopedSlots now
+  //       el.children = []
+  //       // mark el non-plain so data gets generated
+  //       el.plain = false
+  //     }
+  //   }
+  // }
+}
+
+
+function processSlotOutlet (el) {
+  // if (el.tag === 'slot') {
+  //   el.slotName = getBindingAttr(el, 'name')
+  //   if (true && el.key) {
+  //     warn(
+  //       `\`key\` does not work on <slot> because slots are abstract outlets ` +
+  //       `and can possibly expand into multiple elements. ` +
+  //       `Use the key on a wrapping element instead.`,
+  //       getRawBindingAttr(el, 'key')
+  //     )
+  //   }
+  // }
+}
+
+
+function processComponent (el) {
+  // let binding
+  // if ((binding = getBindingAttr(el, 'is'))) {
+  //   el.component = binding
+  // }
+  // if (getAndRemoveAttr(el, 'inline-template') != null) {
+  //   el.inlineTemplate = true
+  // }
+}
+
+
+function processAttrs (el) {
+  // const list = el.attrsList
+  // let i, l, name, rawName, value, modifiers, syncGen, isDynamic
+  // for (i = 0, l = list.length; i < l; i++) {
+  //   name = rawName = list[i].name
+  //   value = list[i].value
+  //   if (dirRE.test(name)) {
+  //     // mark element as dynamic
+  //     el.hasBindings = true
+  //     // modifiers
+  //     modifiers = parseModifiers(name.replace(dirRE, ''))
+  //     // support .foo shorthand syntax for the .prop modifier
+  //     if (process.env.VBIND_PROP_SHORTHAND && propBindRE.test(name)) {
+  //       (modifiers || (modifiers = {})).prop = true
+  //       name = `.` + name.slice(1).replace(modifierRE, '')
+  //     } else if (modifiers) {
+  //       name = name.replace(modifierRE, '')
+  //     }
+  //     if (bindRE.test(name)) { // v-bind
+  //       name = name.replace(bindRE, '')
+  //       value = parseFilters(value)
+  //       isDynamic = dynamicArgRE.test(name)
+  //       if (isDynamic) {
+  //         name = name.slice(1, -1)
+  //       }
+  //       if (
+  //         process.env.NODE_ENV !== 'production' &&
+  //         value.trim().length === 0
+  //       ) {
+  //         warn(
+  //           `The value for a v-bind expression cannot be empty. Found in "v-bind:${name}"`
+  //         )
+  //       }
+  //       if (modifiers) {
+  //         if (modifiers.prop && !isDynamic) {
+  //           name = camelize(name)
+  //           if (name === 'innerHtml') name = 'innerHTML'
+  //         }
+  //         if (modifiers.camel && !isDynamic) {
+  //           name = camelize(name)
+  //         }
+  //         if (modifiers.sync) {
+  //           syncGen = genAssignmentCode(value, `$event`)
+  //           if (!isDynamic) {
+  //             addHandler(
+  //               el,
+  //               `update:${camelize(name)}`,
+  //               syncGen,
+  //               null,
+  //               false,
+  //               warn,
+  //               list[i]
+  //             )
+  //             if (hyphenate(name) !== camelize(name)) {
+  //               addHandler(
+  //                 el,
+  //                 `update:${hyphenate(name)}`,
+  //                 syncGen,
+  //                 null,
+  //                 false,
+  //                 warn,
+  //                 list[i]
+  //               )
+  //             }
+  //           } else {
+  //             // handler w/ dynamic event name
+  //             addHandler(
+  //               el,
+  //               `"update:"+(${name})`,
+  //               syncGen,
+  //               null,
+  //               false,
+  //               warn,
+  //               list[i],
+  //               true // dynamic
+  //             )
+  //           }
+  //         }
+  //       }
+  //       if ((modifiers && modifiers.prop) || (
+  //         !el.component && platformMustUseProp(el.tag, el.attrsMap.type, name)
+  //       )) {
+  //         addProp(el, name, value, list[i], isDynamic)
+  //       } else {
+  //         addAttr(el, name, value, list[i], isDynamic)
+  //       }
+  //     } else if (onRE.test(name)) { // v-on
+  //       name = name.replace(onRE, '')
+  //       isDynamic = dynamicArgRE.test(name)
+  //       if (isDynamic) {
+  //         name = name.slice(1, -1)
+  //       }
+  //       addHandler(el, name, value, modifiers, false, warn, list[i], isDynamic)
+  //     } else { // normal directives
+  //       name = name.replace(dirRE, '')
+  //       // parse arg
+  //       const argMatch = name.match(argRE)
+  //       let arg = argMatch && argMatch[1]
+  //       isDynamic = false
+  //       if (arg) {
+  //         name = name.slice(0, -(arg.length + 1))
+  //         if (dynamicArgRE.test(arg)) {
+  //           arg = arg.slice(1, -1)
+  //           isDynamic = true
+  //         }
+  //       }
+  //       addDirective(el, name, rawName, value, arg, isDynamic, modifiers, list[i])
+  //       if (process.env.NODE_ENV !== 'production' && name === 'model') {
+  //         checkForAliasModel(el, value)
+  //       }
+  //     }
+  //   } else {
+  //     // literal attribute
+  //     if (process.env.NODE_ENV !== 'production') {
+  //       const res = parseText(value, delimiters)
+  //       if (res) {
+  //         warn(
+  //           `${name}="${value}": ` +
+  //           'Interpolation inside attributes has been removed. ' +
+  //           'Use v-bind or the colon shorthand instead. For example, ' +
+  //           'instead of <div id="{{ val }}">, use <div :id="val">.',
+  //           list[i]
+  //         )
+  //       }
+  //     }
+  //     addAttr(el, name, JSON.stringify(value), list[i])
+  //     // #6887 firefox doesn't update muted state if set via attribute
+  //     // even immediately after element creation
+  //     if (!el.component &&
+  //         name === 'muted' &&
+  //         platformMustUseProp(el.tag, el.attrsMap.type, name)) {
+  //       addProp(el, name, 'true', list[i])
+  //     }
+  //   }
+  // }
 }

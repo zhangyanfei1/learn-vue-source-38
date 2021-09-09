@@ -865,6 +865,7 @@ function _createElement (
   children,
   normalizationType
 ) {
+  debugger
   if (normalizationType === ALWAYS_NORMALIZE) {
     children = normalizeChildren(children);
   } else if (normalizationType === SIMPLE_NORMALIZE) {
@@ -1048,6 +1049,10 @@ function insertBefore (parentNode, newNode, referenceNode) {
   parentNode.insertBefore(newNode, referenceNode);
 }
 
+function removeChild (node, child) {
+  node.removeChild(child);
+}
+
 var nodeOps = Object.freeze({
 	createElement: createElement$1,
 	createTextNode: createTextNode,
@@ -1055,8 +1060,11 @@ var nodeOps = Object.freeze({
 	parentNode: parentNode,
 	nextSibling: nextSibling,
 	appendChild: appendChild,
-	insertBefore: insertBefore
+	insertBefore: insertBefore,
+	removeChild: removeChild
 });
+
+const SSR_ATTR = 'data-server-rendered';
 
 function sameVnode (a, b) {
   
@@ -1075,7 +1083,11 @@ function createPatchFunction (backend) {
     ownerArray,
     index
   ) {
+    if (isDef(vnode.elm) && isDef(ownerArray)) {
+      //TODO
+    }
 
+    vnode.isRootInsert = !nested; // for transition enter check
     if (createComponent(vnode, insertedVnodeQueue, parentElm, refElm)) {
       return
     }
@@ -1083,9 +1095,14 @@ function createPatchFunction (backend) {
     const children = vnode.children;
     const tag = vnode.tag;
     if (isDef(tag)) {
-      vnode.elm = nodeOps.createElement(tag, vnode);
-      createChildren(vnode, children, insertedVnodeQueue);
-      insert(parentElm, vnode.elm, refElm);
+      
+      vnode.elm = vnode.ns
+        ? nodeOps.createElementNS(vnode.ns, tag)
+        : nodeOps.createElement(tag, vnode);
+      {
+        createChildren(vnode, children, insertedVnodeQueue);
+        insert(parentElm, vnode.elm, refElm);
+      }
     } else if (isTrue(vnode.isComment)) {
 
     } else {
@@ -1127,6 +1144,7 @@ function createPatchFunction (backend) {
   }
 
   function insert (parent, elm, ref) {
+    debugger
     if (isDef(parent)) {
       if (isDef(ref)) {
         if (nodeOps.parentNode(ref) === parent) {
@@ -1142,7 +1160,54 @@ function createPatchFunction (backend) {
     return new VNode(nodeOps.tagName(elm).toLowerCase(), {}, [], undefined, elm)
   }
 
+  function removeVnodes (vnodes, startIdx, endIdx) {
+    debugger
+    for (; startIdx <= endIdx; ++startIdx) {
+      const ch = vnodes[startIdx];
+      if (isDef(ch)) {
+        if (isDef(ch.tag)) {
+          removeAndInvokeRemoveHook(ch);
+          
+        } else { // Text node
+          removeNode(ch.elm);
+        }
+      }
+    }
+  }
+
+  function createRmCb (childElm, listeners) {
+    function remove () {
+      removeNode(childElm);
+    }
+    // remove.listeners = listeners
+    return remove
+  }
+
+  function removeAndInvokeRemoveHook (vnode, rm) {
+    if (isDef(rm) || isDef(vnode.data)) {
+      const listeners = [];
+      if (isDef(rm)) {
+
+      } else {
+        debugger
+        rm = createRmCb(vnode.elm, listeners);
+      }
+      rm();
+    } else {
+      removeNode(vnode.elm);
+    }
+  }
+
+  function removeNode (el) {
+    const parent = nodeOps.parentNode(el);
+    // element may have already been removed due to v-html / v-text
+    if (isDef(parent)) {
+      nodeOps.removeChild(parent, el);
+    }
+  }
+
   return function patch (oldVnode, vnode, hydrating, removeOnly) {
+    debugger
     if (isUndef(vnode)) {
       return
     }
@@ -1151,12 +1216,17 @@ function createPatchFunction (backend) {
     if (isUndef(oldVnode)) {
       createElm(vnode, insertedVnodeQueue);
     } else {
-      const isRealElement = isDef(oldVnode.nodeType);
+      const isRealElement = isDef(oldVnode.nodeType); //判断 老节点是不是 一个真实的element
       // 新 旧 节点相同
       if (!isRealElement && sameVnode(oldVnode, vnode)) {
-
+        // patch existing root node
+        
       } else {
         if (isRealElement) {
+          if (oldVnode.nodeType === 1 && oldVnode.hasAttribute(SSR_ATTR)) {
+            oldVnode.removeAttribute(SSR_ATTR);
+            hydrating = true;
+          }
           oldVnode = emptyNodeAt(oldVnode);
         }
 
@@ -1165,6 +1235,7 @@ function createPatchFunction (backend) {
         const parentElm = nodeOps.parentNode(oldElm);
 
         // create new node
+        console.log(nodeOps.nextSibling(oldElm));
         createElm(
           vnode,
           insertedVnodeQueue,
@@ -1174,6 +1245,16 @@ function createPatchFunction (backend) {
           parentElm,
           nodeOps.nextSibling(oldElm)
         );
+
+        if (isDef(vnode.parent)) {
+          //TODO
+        }
+
+        if (isDef(parentElm)) {
+          removeVnodes([oldVnode], 0, 0);
+        } else if (isDef(oldVnode.tag)) {
+          
+        }
       }
     }
     return vnode.elm
@@ -1267,6 +1348,10 @@ const canBeLeftOpenTag = makeMap(
   'colgroup,dd,dt,li,options,p,td,tfoot,th,thead,tr,source'
 );
 
+function parseFilters (exp){
+  return exp
+}
+
 function baseWarn (msg, range) {
   console.error(`[Vue compiler]: ${msg}`);
 }
@@ -1300,6 +1385,24 @@ function getAndRemoveAttr (
     delete el.attrsMap[name];
   }
   return val
+}
+
+function getBindingAttr (
+  el,
+  name,
+  getStatic
+) {
+  const dynamicValue =
+    getAndRemoveAttr(el, ':' + name) ||
+    getAndRemoveAttr(el, 'v-bind:' + name);
+  if (dynamicValue != null) {
+    return parseFilters(dynamicValue)
+  } else if (getStatic !== false) {
+    const staticValue = getAndRemoveAttr(el, name);
+    if (staticValue != null) {
+      return JSON.stringify(staticValue)
+    }
+  }
 }
 
 function transformNode (el, options) {
@@ -1512,7 +1615,6 @@ function createCompilerCreator (baseCompile) {
             (tip ? tips : errors).push(data);
           };
         }
-        debugger
         if (options.modules) {
           finalOptions.modules =
             (baseOptions.modules || []).concat(options.modules);
@@ -1783,10 +1885,6 @@ function parseHTML (html, options) {
   }
 }
 
-function parseFilters (exp){
-  return exp
-}
-
 const defaultTagRE = /\{\{((?:.|\r?\n)+?)\}\}/g;
 const regexEscapeRE = /[-.*+?^${}()|[\]\/\\]/g;
 const buildRegex = cached(delimiters => {
@@ -1906,7 +2004,7 @@ function parse (template, options){
       element = processElement(element, options);
     }
 
-    if (!stack.length && element !== root) {
+    if (!stack.length && element !== root) { 
       // allow root elements with v-if, v-else-if and v-else
       if (root.if && (element.elseif || element.else)) {
         {
@@ -2113,7 +2211,6 @@ function parse (template, options){
       }
 
       const children = currentParent.children;
-      debugger
       if (inPre || text.trim()) {
         //TODO
         // text = isTextTag(currentParent) ? text : decodeHTMLCached(text)
@@ -2181,7 +2278,7 @@ function parse (template, options){
   element,
   options
 ) {
-  // processKey(element)
+  processKey(element);
 
   // determine whether this is a plain element after
   // removing structural attributes
@@ -2191,14 +2288,11 @@ function parse (template, options){
     !element.attrsList.length
   );
 
-  // processRef(element)
-  // processSlotContent(element)
-  // processSlotOutlet(element)
-  // processComponent(element)
+  processRef(element);
+  processSlotContent(element);
   for (let i = 0; i < transforms.length; i++) {
     element = transforms[i](element, options) || element;
   }
-  // processAttrs(element)
   return element
 }
 
@@ -2300,6 +2394,192 @@ function addIfCondition (el, condition) {
   el.ifConditions.push(condition);
 }
 
+function processKey (el) {
+  const exp = getBindingAttr(el, 'key');
+  if (exp) {
+    if (process.env.NODE_ENV !== 'production') {
+      if (el.tag === 'template') {
+        warn$1(
+          `<template> cannot be keyed. Place the key on real elements instead.`,
+          getRawBindingAttr(el, 'key')
+        );
+      }
+      if (el.for) {
+        const iterator = el.iterator2 || el.iterator1;
+        const parent = el.parent;
+        if (iterator && iterator === exp && parent && parent.tag === 'transition-group') {
+          warn$1(
+            `Do not use v-for index as key on <transition-group> children, ` +
+            `this is the same as not using keys.`,
+            getRawBindingAttr(el, 'key'),
+            true /* tip */
+          );
+        }
+      }
+    }
+    el.key = exp;
+  }
+}
+
+
+function processRef (el) {
+  const ref = getBindingAttr(el, 'ref');
+  if (ref) {
+    el.ref = ref;
+    el.refInFor = checkInFor(el);
+  }
+}
+
+function processIfConditions (el, parent) {
+  const prev = findPrevElement(parent.children);
+  if (prev && prev.if) {
+    addIfCondition(prev, {
+      exp: el.elseif,
+      block: el
+    });
+  } else {
+    warn$1(
+      `v-${el.elseif ? ('else-if="' + el.elseif + '"') : 'else'} ` +
+      `used on element <${el.tag}> without corresponding v-if.`,
+      el.rawAttrsMap[el.elseif ? 'v-else-if' : 'v-else']
+    );
+  }
+}
+
+function findPrevElement (children){ //找到上一个元素
+  let i = children.length;
+  while (i--) {
+    if (children[i].type === 1) {
+      return children[i]
+    } else {
+      if (true && children[i].text !== ' ') {
+        warn$1(
+          `text "${children[i].text.trim()}" between v-if and v-else(-if) ` +
+          `will be ignored.`,
+          children[i]
+        );
+      }
+      children.pop();
+    }
+  }
+}
+
+
+function processSlotContent (el) {
+  let slotScope;
+  if (el.tag === 'template') {
+    slotScope = getAndRemoveAttr(el, 'scope');
+    /* istanbul ignore if */
+    if (true && slotScope) {
+      warn$1(
+        `the "scope" attribute for scoped slots have been deprecated and ` +
+        `replaced by "slot-scope" since 2.5. The new "slot-scope" attribute ` +
+        `can also be used on plain elements in addition to <template> to ` +
+        `denote scoped slots.`,
+        el.rawAttrsMap['scope'],
+        true
+      );
+    }
+    el.slotScope = slotScope || getAndRemoveAttr(el, 'slot-scope');
+  } else if ((slotScope = getAndRemoveAttr(el, 'slot-scope'))) {
+    /* istanbul ignore if */
+    if (true && el.attrsMap['v-for']) {
+      warn$1(
+        `Ambiguous combined usage of slot-scope and v-for on <${el.tag}> ` +
+        `(v-for takes higher priority). Use a wrapper <template> for the ` +
+        `scoped slot to make it clearer.`,
+        el.rawAttrsMap['slot-scope'],
+        true
+      );
+    }
+    el.slotScope = slotScope;
+  }
+
+  // slot="xxx"
+  const slotTarget = getBindingAttr(el, 'slot');
+  if (slotTarget) {
+    el.slotTarget = slotTarget === '""' ? '"default"' : slotTarget;
+    el.slotTargetDynamic = !!(el.attrsMap[':slot'] || el.attrsMap['v-bind:slot']);
+    // preserve slot as an attribute for native shadow DOM compat
+    // only for non-scoped slots.
+    if (el.tag !== 'template' && !el.slotScope) {
+      addAttr(el, 'slot', slotTarget, getRawBindingAttr(el, 'slot'));
+    }
+  }
+
+  // 2.6 v-slot syntax
+  // if (process.env.NEW_SLOT_SYNTAX) {
+  //   if (el.tag === 'template') {
+  //     // v-slot on <template>
+  //     const slotBinding = getAndRemoveAttrByRegex(el, slotRE)
+  //     if (slotBinding) {
+  //       if (process.env.NODE_ENV !== 'production') {
+  //         if (el.slotTarget || el.slotScope) {
+  //           warn(
+  //             `Unexpected mixed usage of different slot syntaxes.`,
+  //             el
+  //           )
+  //         }
+  //         if (el.parent && !maybeComponent(el.parent)) {
+  //           warn(
+  //             `<template v-slot> can only appear at the root level inside ` +
+  //             `the receiving component`,
+  //             el
+  //           )
+  //         }
+  //       }
+  //       const { name, dynamic } = getSlotName(slotBinding)
+  //       el.slotTarget = name
+  //       el.slotTargetDynamic = dynamic
+  //       el.slotScope = slotBinding.value || emptySlotScopeToken // force it into a scoped slot for perf
+  //     }
+  //   } else {
+  //     // v-slot on component, denotes default slot
+  //     const slotBinding = getAndRemoveAttrByRegex(el, slotRE)
+  //     if (slotBinding) {
+  //       if (process.env.NODE_ENV !== 'production') {
+  //         if (!maybeComponent(el)) {
+  //           warn(
+  //             `v-slot can only be used on components or <template>.`,
+  //             slotBinding
+  //           )
+  //         }
+  //         if (el.slotScope || el.slotTarget) {
+  //           warn(
+  //             `Unexpected mixed usage of different slot syntaxes.`,
+  //             el
+  //           )
+  //         }
+  //         if (el.scopedSlots) {
+  //           warn(
+  //             `To avoid scope ambiguity, the default slot should also use ` +
+  //             `<template> syntax when there are other named slots.`,
+  //             slotBinding
+  //           )
+  //         }
+  //       }
+  //       // add the component's children to its default slot
+  //       const slots = el.scopedSlots || (el.scopedSlots = {})
+  //       const { name, dynamic } = getSlotName(slotBinding)
+  //       const slotContainer = slots[name] = createASTElement('template', [], el)
+  //       slotContainer.slotTarget = name
+  //       slotContainer.slotTargetDynamic = dynamic
+  //       slotContainer.children = el.children.filter((c: any) => {
+  //         if (!c.slotScope) {
+  //           c.parent = slotContainer
+  //           return true
+  //         }
+  //       })
+  //       slotContainer.slotScope = slotBinding.value || emptySlotScopeToken
+  //       // remove children as they are returned from scopedSlots now
+  //       el.children = []
+  //       // mark el non-plain so data gets generated
+  //       el.plain = false
+  //     }
+  //   }
+  // }
+}
+
 function on (el, dir) {
 
 }
@@ -2316,7 +2596,6 @@ var baseDirectives = {
 
 class CodegenState {
   constructor (options) {
-    debugger
     this.options = options;
     this.warn = options.warn || baseWarn;
     this.transforms = pluckModuleFunction(options.modules, 'transformCode');
@@ -2346,7 +2625,7 @@ function genElement (el, state) {
 
     } else {
       let data;
-      {
+      if (!el.plain) {
         data = genData$2(el, state);
         console.log(data);
       }
