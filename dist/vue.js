@@ -4,13 +4,9 @@
 	(global.Vue = factory());
 }(this, (function () { 'use strict';
 
-let initProxy;
-
-initProxy = function initProxy (vm) {
-  vm._renderProxy = vm;
-};
-
 function noop (a, b, c) {}
+
+const emptyObject = Object.freeze({});
 
 function isUndef (v) {
   return v === undefined || v === null
@@ -119,6 +115,105 @@ function extend (to, _from) {
   return to
 }
 
+
+function isPromise (val) {
+  return (
+    isDef(val) &&
+    typeof val.then === 'function' &&
+    typeof val.catch === 'function'
+  )
+}
+
+function remove (arr, item) {
+  if (arr.length) {
+    const index = arr.indexOf(item);
+    if (index > -1) {
+      return arr.splice(index, 1)
+    }
+  }
+}
+
+const SSR_ATTR = 'data-server-rendered';
+
+
+const LIFECYCLE_HOOKS = [
+  'beforeCreate',
+  'created',
+  'beforeMount',
+  'mounted',
+  'beforeUpdate',
+  'updated',
+  'beforeDestroy',
+  'destroyed',
+  'activated',
+  'deactivated',
+  'errorCaptured',
+  'serverPrefetch'
+];
+
+var config = ({
+  optionMergeStrategies: Object.create(null),
+  /**
+   * Check if a tag is reserved so that it cannot be registered as a
+   * component. This is platform-dependent and may be overwritten.
+   */
+   isReservedTag: no,
+     /**
+   * Parse the real tag name for the specific platform.
+   */
+  parsePlatformTagName: identity,
+  warnHandler: null,
+  silent: false,
+  _lifecycleHooks: LIFECYCLE_HOOKS,
+  performance: false
+})
+
+const inBrowser = typeof window !== 'undefined';
+const UA = inBrowser && window.navigator.userAgent.toLowerCase();
+const isIE = UA && /msie|trident/.test(UA);
+const isIOS = (UA && /iphone|ipad|ipod|ios/.test(UA));
+
+// Firefox has a "watch" function on Object.prototype...
+const nativeWatch = ({}).watch; //fix
+
+function isNative (Ctor) {
+  return typeof Ctor === 'function' && /native code/.test(Ctor.toString())
+}
+
+let _isServer;
+const isServerRendering = () => {
+  _isServer = false;
+  return _isServer
+};
+
+let mark;
+let measure;
+
+{
+  const perf = inBrowser && window.performance;
+  if (
+    perf &&
+    perf.mark &&
+    perf.measure &&
+    perf.clearMarks &&
+    perf.clearMeasures
+  ) {
+    mark = tag => perf.mark(tag);
+    measure = (name, startTag, endTag) => {
+      perf.measure(name, startTag, endTag);
+      perf.clearMarks(startTag);
+      perf.clearMarks(endTag);
+      // perf.clearMeasures(name)
+    };
+  }
+}
+
+let initProxy;
+
+initProxy = function initProxy (vm) {
+  vm._renderProxy = vm;
+};
+
 const unicodeRegExp = /a-zA-Z\u00B7\u00C0-\u00D6\u00D8-\u00F6\u00F8-\u037D\u037F-\u1FFF\u200C-\u200D\u203F-\u2040\u2070-\u218F\u2C00-\u2FEF\u3001-\uD7FF\uF900-\uFDCF\uFDF0-\uFFFD/;
 
 function isReserved (str) {
@@ -134,35 +229,6 @@ function def (obj, key, val, enumerable) {
     configurable: true
   });
 }
-
-const inBrowser = typeof window !== 'undefined';
-const UA = inBrowser && window.navigator.userAgent.toLowerCase();
-const isIE = UA && /msie|trident/.test(UA);
-const isIOS = (UA && /iphone|ipad|ipod|ios/.test(UA));
-function isNative (Ctor) {
-  return typeof Ctor === 'function' && /native code/.test(Ctor.toString())
-}
-
-let _isServer;
-const isServerRendering = () => {
-  _isServer = false;
-  return _isServer
-};
-
-var config = ({
-  optionMergeStrategies: Object.create(null),
-  /**
-   * Check if a tag is reserved so that it cannot be registered as a
-   * component. This is platform-dependent and may be overwritten.
-   */
-   isReservedTag: no,
-     /**
-   * Parse the real tag name for the specific platform.
-   */
-  parsePlatformTagName: identity,
-  warnHandler: null,
-  silent: false
-})
 
 function resolveAsset (
   options,
@@ -219,8 +285,60 @@ function mergeOptions (
   return options
 }
 
+function mergeHook (
+  parentVal,
+  childVal
+) {
+  const res = childVal
+    ? parentVal
+      ? parentVal.concat(childVal)
+      : Array.isArray(childVal)
+        ? childVal
+        : [childVal]
+    : parentVal;
+  return res
+    ? dedupeHooks(res)
+    : res
+}
+
+function dedupeHooks (hooks) { //对hooks的一个去重
+  const res = [];
+  for (let i = 0; i < hooks.length; i++) {
+    if (res.indexOf(hooks[i]) === -1) {
+      res.push(hooks[i]);
+    }
+  }
+  return res
+}
+
+LIFECYCLE_HOOKS.forEach(hook => {
+  strats[hook] = mergeHook;
+});
+
 function handleError (err, vm, info) {
   console.log('handleError');
+}
+
+function invokeWithErrorHandling (
+  handler,
+  context,
+  args,
+  vm,
+  info
+) {
+  let res;
+  try {
+    res = args ? handler.apply(context, args) : handler.call(context);
+    if (res && !res._isVue && isPromise(res) && !res._handled) {
+      res.catch(e => handleError(e, vm, info + ` (Promise/async)`));
+      // issue #9511
+      // avoid catch triggering multiple times when nested calls
+      res._handled = true;
+    }
+  } catch (e) {
+    handleError(e, vm, info);
+  }
+  return res
 }
 
 // import { handleError } from './error'
@@ -298,6 +416,8 @@ warn = (msg, vm) => {
 generateComponentTrace = vm => {
 
 };
+
+let formatComponentName = (noop);
 
 class VNode {
   constructor (
@@ -479,11 +599,19 @@ function proxy (target, sourceKey, key) {
 
 
 function initState (vm) {
+  vm._watchers = [];
   const opts = vm.$options;
+  if (opts.props) initProps(vm, opts.props);
+  if (opts.methods) initMethods(vm, opts.methods);
   if (opts.data) {
     initData(vm);
   } else {
     observe(vm._data = {}, true /* asRootData */);
+  }
+
+  if (opts.computed) initComputed(vm, opts.computed);
+  if (opts.watch && opts.watch !== nativeWatch) {
+    initWatch(vm, opts.watch);
   }
 }
 
@@ -517,6 +645,38 @@ function getData (data, vm){
   } finally {
     // popTarget()
   }
+}
+
+function initProps (vm, propsOptions) {
+
+}
+
+function initMethods (vm, methods) {
+
+}
+
+function initComputed (vm, computed) {
+
+}
+
+function initWatch (vm, watch) {
+
+}
+
+function initEvents (vm) {
+  vm._events = Object.create(null);
+  vm._hasHookEvent = false;
+  const listeners = vm.$options._parentListeners;
+  
+}
+
+
+
+
+function eventsMixin (Vue) {
+  Vue.prototype.$off = function (event, fn) {
+
+  };
 }
 
 const queue = [];
@@ -645,6 +805,10 @@ function queueWatcher (watcher) {
       // }
     }
   }
+
+  teardown () {
+    
+  }
  }
 
 let activeInstance = null;
@@ -659,8 +823,13 @@ function setActiveInstance(vm) {
 
 function initLifecycle (vm) {
   const options = vm.$options;
+
+  // locate first non-abstract parent
   let parent = options.parent;
   if (parent && !options.abstract) {
+    while (parent.$options.abstract && parent.$parent) {
+      parent = parent.$parent;
+    }
     parent.$children.push(vm);
   }
 
@@ -668,6 +837,14 @@ function initLifecycle (vm) {
   vm.$root = parent ? parent.$root : vm;
 
   vm.$children = [];
+  vm.$refs = {};
+
+  vm._watcher = null;
+  vm._inactive = null;
+  vm._directInactive = false;
+  vm._isMounted = false;
+  vm._isDestroyed = false;
+  vm._isBeingDestroyed = false;
 }
 
 function lifecycleMixin (Vue) {
@@ -686,6 +863,51 @@ function lifecycleMixin (Vue) {
     }
     restoreActiveInstance();
   };
+
+  Vue.prototype.$destroy = function () {
+    const vm = this;
+    if (vm._isBeingDestroyed) { //正在走$destroy逻辑
+      return
+    }
+    callHook(vm, 'beforeDestroy');
+    vm._isBeingDestroyed = true;
+    // // remove self from parent
+    const parent = vm.$parent;
+    if (parent && !parent._isBeingDestroyed && !vm.$options.abstract) { //如果parent存在，且没有在销毁中，且当前vm
+      remove(parent.$children, vm);
+    }
+    // // teardown watchers
+    if (vm._watcher) { //数据监听移除
+      vm._watcher.teardown();
+    }
+    let i = vm._watchers.length;
+    while (i--) {
+      vm._watchers[i].teardown();
+    }
+    // // remove reference from data ob
+    // // frozen object may not have observer.
+    if (vm._data.__ob__) {
+      // vm._data.__ob__.vmCount--
+    }
+    // // call the last hook...
+    vm._isDestroyed = true;
+    // // invoke destroy hooks on current rendered tree
+    vm.__patch__(vm._vnode, null); //把子组件都销毁
+    // // fire destroyed hook
+
+    //解除关联关系：销毁子组件
+    callHook(vm, 'destroyed');
+    // // turn off all instance listeners.
+    vm.$off();
+    // // remove __vue__ reference
+    if (vm.$el) {
+      vm.$el.__vue__ = null;
+    }
+    // // release circular reference (#6759)
+    if (vm.$vnode) {
+      vm.$vnode.parent = null;
+    }
+  };
 }
 
 function mountComponent (
@@ -694,13 +916,45 @@ function mountComponent (
   hydrating
 ) {
   vm.$el = el;
+  callHook(vm, 'beforeMount');
   let updateComponent;
   updateComponent = () => {
     vm._update(vm._render(), hydrating);
   };
 
-  new Watcher(vm, updateComponent, noop, {}, true);
+  new Watcher(vm, updateComponent, noop, {
+    before () {
+      if (vm._isMounted && !vm._isDestroyed) {
+        callHook(vm, 'beforeUpdate');
+      }
+    }
+  }, true);
+
+  if (vm.$vnode == null) {
+    vm._isMounted = true;
+    callHook(vm, 'mounted');
+  }
   return vm
+}
+
+
+
+
+
+function callHook (vm, hook) {
+  // #7573 disable dep collection when invoking lifecycle hooks
+  pushTarget();
+  const handlers = vm.$options[hook];
+  const info = `${hook} hook`;
+  if (handlers) {
+    for (let i = 0, j = handlers.length; i < j; i++) {
+      invokeWithErrorHandling(handlers[i], vm, null, vm, info);
+    }
+  }
+  if (vm._hasHookEvent) {
+    vm.$emit('hook:' + hook);
+  }
+  popTarget();
 }
 
 const componentVNodeHooks = {
@@ -865,7 +1119,6 @@ function _createElement (
   children,
   normalizationType
 ) {
-  debugger
   if (normalizationType === ALWAYS_NORMALIZE) {
     children = normalizeChildren(children);
   } else if (normalizationType === SIMPLE_NORMALIZE) {
@@ -898,11 +1151,25 @@ function installRenderHelpers (target) {
   target._v = createTextVNode;
 }
 
-function initRender (vm) {
-  const options = vm.$options;
+function resolveSlots (
+  children,
+  context
+) {
 
+}
+
+function initRender (vm) {
+  vm._vnode = null; // the root of the child tree
+  vm._staticTrees = null; // v-once cached trees
+  const options = vm.$options;
+  const parentVnode = vm.$vnode = options._parentVnode; // the placeholder node in parent tree
+  const renderContext = parentVnode && parentVnode.context;
+  vm.$slots = resolveSlots(options._renderChildren, renderContext);
+  vm.$scopedSlots = emptyObject;
   vm._c = (a, b, c, d) => createElement(vm, a, b, c, d, false);
   vm.$createElement = (a, b, c, d) => createElement(vm, a, b, c, d, true);
+  const parentData = parentVnode && parentVnode.data;
+  
 }
 function renderMixin (Vue) {
   installRenderHelpers(Vue.prototype);
@@ -919,10 +1186,22 @@ function renderMixin (Vue) {
   };
 }
 
+let uid$1 = 0;
+
 function initMixin (Vue) {
   Vue.prototype._init = function (options) {
     const vm = this;
-    if (options && options._isComponent) {
+
+    vm._uid = uid$1++;
+
+    let startTag, endTag;
+    /* istanbul ignore if */
+    if (true && config.performance && mark) {
+      startTag = `vue-perf-start:${vm._uid}`;
+      endTag = `vue-perf-end:${vm._uid}`;
+      mark(startTag);
+    }
+    if (options && options._isComponent) { //合并配置
       initInternalComponent(vm, options);
     } else {
       vm.$options = mergeOptions(
@@ -931,11 +1210,24 @@ function initMixin (Vue) {
         vm
       );
     }
-    initProxy(vm);
+    { //对vm做代理 TODO
+      initProxy(vm);
+    }
 
-    initLifecycle(vm); 
+    vm._self = vm; //
+
+    initLifecycle(vm); // 初始化 $parent $root $children $refs
+    initEvents(vm); //初始化父组件 传递的 监听器
     initRender(vm);
-    initState(vm);
+    callHook(vm, 'beforeCreate');
+    initState(vm); //初始化 data，watch，method， props， computed
+    callHook(vm, 'created');
+
+    if (true && config.performance && mark) {
+      vm._name = formatComponentName(vm, false);
+      mark(endTag);
+      measure(`vue ${vm._name} init`, startTag, endTag);
+    }
 
     if (vm.$options.el) {
       vm.$mount(vm.$options.el);
@@ -973,7 +1265,7 @@ function Vue (options) {
 
 initMixin(Vue); //原型上挂载_init 方法
 // stateMixin(Vue)
-// eventsMixin(Vue) //原型上挂载 $on $once $off $emit
+eventsMixin(Vue); //原型上挂载 $on $once $off $emit
 lifecycleMixin(Vue); //挂载 _update  $forceUpdate   $destroy   方法
 renderMixin(Vue); //挂载 $nextTick  _render  方法
 
@@ -1064,15 +1356,28 @@ var nodeOps = Object.freeze({
 	removeChild: removeChild
 });
 
-const SSR_ATTR = 'data-server-rendered';
+const emptyNode = new VNode('', {}, []);
+
+const hooks = ['create', 'activate', 'update', 'remove', 'destroy'];
 
 function sameVnode (a, b) {
   
 }
 
 function createPatchFunction (backend) {
+  let i, j;
+  const cbs = {};
 
   const { modules, nodeOps } = backend;
+
+  for (i = 0; i < hooks.length; ++i) {
+    cbs[hooks[i]] = [];
+    for (j = 0; j < modules.length; ++j) {
+      if (isDef(modules[j][hooks[i]])) {
+        cbs[hooks[i]].push(modules[j][hooks[i]]);
+      }
+    }
+  }
 
   function createElm (
     vnode,
@@ -1101,6 +1406,9 @@ function createPatchFunction (backend) {
         : nodeOps.createElement(tag, vnode);
       {
         createChildren(vnode, children, insertedVnodeQueue);
+        if (isDef(data)) {
+          invokeCreateHooks(vnode, insertedVnodeQueue);
+        }
         insert(parentElm, vnode.elm, refElm);
       }
     } else if (isTrue(vnode.isComment)) {
@@ -1108,6 +1416,17 @@ function createPatchFunction (backend) {
     } else {
       vnode.elm = nodeOps.createTextNode(vnode.text);
       insert(parentElm, vnode.elm, refElm);
+    }
+  }
+
+  function invokeCreateHooks (vnode, insertedVnodeQueue) {
+    for (let i = 0; i < cbs.create.length; ++i) {
+      cbs.create[i](emptyNode, vnode);
+    }
+    i = vnode.data.hook; // Reuse variable
+    if (isDef(i)) {
+      if (isDef(i.create)) i.create(emptyNode, vnode);
+      if (isDef(i.insert)) insertedVnodeQueue.push(vnode);
     }
   }
 
@@ -1144,7 +1463,6 @@ function createPatchFunction (backend) {
   }
 
   function insert (parent, elm, ref) {
-    debugger
     if (isDef(parent)) {
       if (isDef(ref)) {
         if (nodeOps.parentNode(ref) === parent) {
@@ -1161,7 +1479,6 @@ function createPatchFunction (backend) {
   }
 
   function removeVnodes (vnodes, startIdx, endIdx) {
-    debugger
     for (; startIdx <= endIdx; ++startIdx) {
       const ch = vnodes[startIdx];
       if (isDef(ch)) {
@@ -1189,7 +1506,6 @@ function createPatchFunction (backend) {
       if (isDef(rm)) {
 
       } else {
-        debugger
         rm = createRmCb(vnode.elm, listeners);
       }
       rm();
@@ -1207,8 +1523,7 @@ function createPatchFunction (backend) {
   }
 
   return function patch (oldVnode, vnode, hydrating, removeOnly) {
-    debugger
-    if (isUndef(vnode)) {
+    if (isUndef(vnode)) { //在$destroy 调用的时候会这个逻辑
       return
     }
 
@@ -1261,20 +1576,23 @@ function createPatchFunction (backend) {
   }
 }
 
-const modules = '';
+var directives = {
+  
+}
 
-const patch = createPatchFunction({ nodeOps, modules });
+var ref = {
+  
+}
 
-// install platform patch function
-Vue.prototype.__patch__ = patch;
+var baseModules = [
+  ref,
+  directives
+]
 
-// public mount method
-Vue.prototype.$mount = function (
-  el,
-  hydrating
-){
-  return mountComponent(this, el, hydrating)
-};
+var attrs = {
+  // create: updateAttrs,
+  // update: updateAttrs
+}
 
 const isHTMLTag = makeMap(
   'html,body,base,head,link,meta,style,title,' +
@@ -1324,6 +1642,87 @@ function getTagNamespace (tag) {
   }
 }
 
+/* @flow */
+
+function genClassForVnode (vnode) {
+  let data = vnode.data;
+  let parentNode = vnode;
+  let childNode = vnode;
+  while (isDef(childNode.componentInstance)) {
+    childNode = childNode.componentInstance._vnode;
+    if (childNode && childNode.data) {
+      data = mergeClassData(childNode.data, data);
+    }
+  }
+  while (isDef(parentNode = parentNode.parent)) {
+    if (parentNode && parentNode.data) {
+      data = mergeClassData(data, parentNode.data);
+    }
+  }
+  return renderClass(data.staticClass, data.class)
+}
+
+function mergeClassData (child, parent) {
+  return {
+    staticClass: concat(child.staticClass, parent.staticClass),
+    class: isDef(child.class)
+      ? [child.class, parent.class]
+      : parent.class
+  }
+}
+
+function renderClass (
+  staticClass,
+  dynamicClass
+) {
+  if (isDef(staticClass) || isDef(dynamicClass)) {
+    return concat(staticClass, stringifyClass(dynamicClass))
+  }
+  /* istanbul ignore next */
+  return ''
+}
+
+function concat (a, b) {
+  return a ? b ? (a + ' ' + b) : a : (b || '')
+}
+
+function stringifyClass (value) {
+  if (Array.isArray(value)) {
+    return stringifyArray(value)
+  }
+  if (isObject(value)) {
+    return stringifyObject(value)
+  }
+  if (typeof value === 'string') {
+    return value
+  }
+  /* istanbul ignore next */
+  return ''
+}
+
+function stringifyArray (value) {
+  let res = '';
+  let stringified;
+  for (let i = 0, l = value.length; i < l; i++) {
+    if (isDef(stringified = stringifyClass(value[i])) && stringified !== '') {
+      if (res) res += ' ';
+      res += stringified;
+    }
+  }
+  return res
+}
+
+function stringifyObject (value) {
+  let res = '';
+  for (const key in value) {
+    if (value[key]) {
+      if (res) res += ' ';
+      res += key;
+    }
+  }
+  return res
+}
+
 /**
  * Query an element selector if it's not an element already.
  */
@@ -1338,6 +1737,85 @@ function getTagNamespace (tag) {
     return el
   }
 }
+
+function updateClass (oldVnode, vnode) {
+  debugger
+  const el = vnode.elm;
+  const data = vnode.data;
+  const oldData = oldVnode.data;
+  if (
+    isUndef(data.staticClass) &&
+    isUndef(data.class) && (
+      isUndef(oldData) || (
+        isUndef(oldData.staticClass) &&
+        isUndef(oldData.class)
+      )
+    )
+  ) {
+    return
+  }
+
+  let cls = genClassForVnode(vnode);
+
+  // handle transition classes
+  const transitionClass = el._transitionClasses;
+  if (isDef(transitionClass)) {
+    cls = concat(cls, stringifyClass(transitionClass));
+  }
+
+  // set the class
+  if (cls !== el._prevClass) {
+    el.setAttribute('class', cls);
+    el._prevClass = cls;
+  }
+}
+var klass = {
+  create: updateClass,
+  update: updateClass
+}
+
+var events = {
+  // create: updateDOMListeners,
+  // update: updateDOMListeners
+}
+
+var domProps = {
+  // create: updateDOMProps,
+  // update: updateDOMProps
+}
+
+var style = {
+  // create: updateStyle,
+  // update: updateStyle
+}
+
+var transition = {
+
+}
+
+var platformModules = [
+  attrs,
+  klass,
+  events,
+  domProps,
+  style,
+  transition
+]
+
+const modules = platformModules.concat(baseModules);
+
+const patch = createPatchFunction({ nodeOps, modules });
+
+// install platform patch function
+Vue.prototype.__patch__ = patch;
+
+// public mount method
+Vue.prototype.$mount = function (
+  el,
+  hydrating
+){
+  return mountComponent(this, el, hydrating)
+};
 
 const isUnaryTag = makeMap(
   'area,base,br,col,embed,frame,hr,img,input,isindex,keygen,' +
@@ -1405,6 +1883,31 @@ function getBindingAttr (
   }
 }
 
+
+function addAttr (el, name, value, range, dynamic) {
+  //attrs 后面在生产render函数的时候用得到
+  const attrs = dynamic
+    ? (el.dynamicAttrs || (el.dynamicAttrs = []))
+    : (el.attrs || (el.attrs = []));
+  attrs.push(rangeSetItem({ name, value, dynamic }, range));
+  el.plain = false;
+}
+
+function rangeSetItem (
+  item,
+  range
+) {
+  if (range) {
+    if (range.start != null) {
+      item.start = range.start;
+    }
+    if (range.end != null) {
+      item.end = range.end;
+    }
+  }
+  return item
+}
+
 function transformNode (el, options) {
   const warn = options.warn || baseWarn;
   const staticClass = getAndRemoveAttr(el, 'class');
@@ -1424,7 +1927,7 @@ function genData (el) {
   return data
 }
 
-var klass = {
+var klass$1 = {
   transformNode,
   genData
 }
@@ -1439,7 +1942,7 @@ function genData$1 (el) {
   }
   return data
 }
-var style = {
+var style$1 = {
   genData: genData$1
 }
 
@@ -1448,8 +1951,8 @@ var model = {
 }
 
 var modules$1 = [
-  klass,
-  style,
+  klass$1,
+  style$1,
   model
 ]
 
@@ -1469,7 +1972,7 @@ function html (el, dir) {
 
 }
 
-var directives = {
+var directives$1 = {
   model: model$1,
   text,
   html
@@ -1477,7 +1980,7 @@ var directives = {
 
 const baseOptions = {
   modules: modules$1,
-  directives,
+  directives: directives$1,
   isUnaryTag,
   isReservedTag,
   isPreTag,
@@ -1932,6 +2435,8 @@ function parseText (
  * Convert HTML string to AST.
  */
 
+ const dirRE = /^v-|^@|^:|^\.|^#/;
+
 //  const decodeHTMLCached = cached(he.decode)
 
  const lineBreakRE = /[\r\n]/;
@@ -2293,6 +2798,7 @@ function parse (template, options){
   for (let i = 0; i < transforms.length; i++) {
     element = transforms[i](element, options) || element;
   }
+  processAttrs(element);
   return element
 }
 
@@ -2580,6 +3086,144 @@ function processSlotContent (el) {
   // }
 }
 
+
+function processAttrs (el) {
+  const list = el.attrsList;
+  let i, l, name, rawName, value;
+  for (i = 0, l = list.length; i < l; i++) {
+    name = rawName = list[i].name;
+    value = list[i].value;
+    if (dirRE.test(name)) {
+  //     // mark element as dynamic
+      // el.hasBindings = true
+      // // modifiers
+      // modifiers = parseModifiers(name.replace(dirRE, ''))
+      // // support .foo shorthand syntax for the .prop modifier
+      // if (process.env.VBIND_PROP_SHORTHAND && propBindRE.test(name)) {
+      //   (modifiers || (modifiers = {})).prop = true
+      //   name = `.` + name.slice(1).replace(modifierRE, '')
+      // } else if (modifiers) {
+      //   name = name.replace(modifierRE, '')
+      // }
+      // if (bindRE.test(name)) { // v-bind
+      //   name = name.replace(bindRE, '')
+      //   value = parseFilters(value)
+      //   isDynamic = dynamicArgRE.test(name)
+      //   if (isDynamic) {
+      //     name = name.slice(1, -1)
+      //   }
+      //   if (
+      //     process.env.NODE_ENV !== 'production' &&
+      //     value.trim().length === 0
+      //   ) {
+      //     warn(
+      //       `The value for a v-bind expression cannot be empty. Found in "v-bind:${name}"`
+      //     )
+      //   }
+      //   if (modifiers) {
+      //     if (modifiers.prop && !isDynamic) {
+      //       name = camelize(name)
+      //       if (name === 'innerHtml') name = 'innerHTML'
+      //     }
+      //     if (modifiers.camel && !isDynamic) {
+      //       name = camelize(name)
+      //     }
+      //     if (modifiers.sync) {
+      //       syncGen = genAssignmentCode(value, `$event`)
+      //       if (!isDynamic) {
+      //         addHandler(
+      //           el,
+      //           `update:${camelize(name)}`,
+      //           syncGen,
+      //           null,
+      //           false,
+      //           warn,
+      //           list[i]
+      //         )
+      //         if (hyphenate(name) !== camelize(name)) {
+      //           addHandler(
+      //             el,
+      //             `update:${hyphenate(name)}`,
+      //             syncGen,
+      //             null,
+      //             false,
+      //             warn,
+      //             list[i]
+      //           )
+      //         }
+      //       } else {
+      //         // handler w/ dynamic event name
+      //         addHandler(
+      //           el,
+      //           `"update:"+(${name})`,
+      //           syncGen,
+      //           null,
+      //           false,
+      //           warn,
+      //           list[i],
+      //           true // dynamic
+      //         )
+      //       }
+      //     }
+      //   }
+      //   if ((modifiers && modifiers.prop) || (
+      //     !el.component && platformMustUseProp(el.tag, el.attrsMap.type, name)
+      //   )) {
+      //     addProp(el, name, value, list[i], isDynamic)
+      //   } else {
+      //     addAttr(el, name, value, list[i], isDynamic)
+      //   }
+      // } else if (onRE.test(name)) { // v-on
+      //   name = name.replace(onRE, '')
+      //   isDynamic = dynamicArgRE.test(name)
+      //   if (isDynamic) {
+      //     name = name.slice(1, -1)
+      //   }
+      //   addHandler(el, name, value, modifiers, false, warn, list[i], isDynamic)
+      // } else { // normal directives
+      //   name = name.replace(dirRE, '')
+      //   // parse arg
+      //   const argMatch = name.match(argRE)
+      //   let arg = argMatch && argMatch[1]
+      //   isDynamic = false
+      //   if (arg) {
+      //     name = name.slice(0, -(arg.length + 1))
+      //     if (dynamicArgRE.test(arg)) {
+      //       arg = arg.slice(1, -1)
+      //       isDynamic = true
+      //     }
+      //   }
+      //   addDirective(el, name, rawName, value, arg, isDynamic, modifiers, list[i])
+      //   if (process.env.NODE_ENV !== 'production' && name === 'model') {
+      //     checkForAliasModel(el, value)
+      //   }
+      // }
+    } else { //属性
+      // literal attribute
+      // if (true) {
+      //   const res = parseText(value, delimiters)
+      //   if (res) {
+      //     warn(
+      //       `${name}="${value}": ` +
+      //       'Interpolation inside attributes has been removed. ' +
+      //       'Use v-bind or the colon shorthand instead. For example, ' +
+      //       'instead of <div id="{{ val }}">, use <div :id="val">.',
+      //       list[i]
+      //     )
+      //   }
+      // }
+      addAttr(el, name, JSON.stringify(value), list[i]);
+      // #6887 firefox doesn't update muted state if set via attribute
+      // even immediately after element creation
+      // if (!el.component &&
+      //     name === 'muted' &&
+      //     platformMustUseProp(el.tag, el.attrsMap.type, name)) {
+      //   addProp(el, name, 'true', list[i])
+      // }
+    }
+  }
+}
+
 function on (el, dir) {
 
 }
@@ -2684,8 +3328,34 @@ function genData$2 (el, state) {
   for (let i = 0; i < state.dataGenFns.length; i++) {
     data += state.dataGenFns[i](el);
   }
+
+  // attributes
+  if (el.attrs) {
+    data += `attrs:${genProps(el.attrs)},`;
+  }
+
   data = data.replace(/,$/, '') + '}';
   return data
+}
+
+function genProps (props) {
+  let staticProps = ``;
+  let dynamicProps = ``;
+  for (let i = 0; i < props.length; i++) {
+    const prop = props[i];
+    const value = transformSpecialNewlines(prop.value);
+    if (prop.dynamic) {
+      dynamicProps += `${prop.name},${value},`;
+    } else {
+      staticProps += `"${prop.name}":${value},`;
+    }
+  }
+  staticProps = `{${staticProps.slice(0, -1)}}`;
+  if (dynamicProps) {
+    return `_d(${staticProps},[${dynamicProps.slice(0, -1)}])`
+  } else {
+    return staticProps
+  }
 }
 
 // #3895, #4268
@@ -2700,6 +3370,7 @@ const createCompiler = createCompilerCreator(function baseCompile (
   options
 ) {
   const ast = parse(template.trim(), options);
+  console.log('ast', ast);
   if (options.optimize !== false) {
     //优化，静态化
     

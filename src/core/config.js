@@ -2,6 +2,9 @@ import {
   identity,
   no
 } from '../shared/util'
+
+import { LIFECYCLE_HOOKS } from '../shared/constants'
+
 export default ({
   optionMergeStrategies: Object.create(null),
   /**
@@ -14,5 +17,7 @@ export default ({
    */
   parsePlatformTagName: identity,
   warnHandler: null,
-  silent: false
+  silent: false,
+  _lifecycleHooks: LIFECYCLE_HOOKS,
+  performance: false
 })

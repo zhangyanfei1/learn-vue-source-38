@@ -3,6 +3,9 @@ import {
   // camelize,
   // capitalize
 } from '../../shared/util'
+import {
+  LIFECYCLE_HOOKS
+} from '../../shared/constants'
 import config from '../config'
 export function resolveAsset (
   options,
@@ -58,3 +61,33 @@ export function mergeOptions (
   }
   return options
 }
+
+function mergeHook (
+  parentVal,
+  childVal
+) {
+  const res = childVal
+    ? parentVal
+      ? parentVal.concat(childVal)
+      : Array.isArray(childVal)
+        ? childVal
+        : [childVal]
+    : parentVal
+  return res
+    ? dedupeHooks(res)
+    : res
+}
+
+function dedupeHooks (hooks) { //对hooks的一个去重
+  const res = []
+  for (let i = 0; i < hooks.length; i++) {
+    if (res.indexOf(hooks[i]) === -1) {
+      res.push(hooks[i])
+    }
+  }
+  return res
+}
+
+LIFECYCLE_HOOKS.forEach(hook => {
+  strats[hook] = mergeHook
+})

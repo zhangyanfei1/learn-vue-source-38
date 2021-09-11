@@ -7,6 +7,7 @@ export const createCompiler = createCompilerCreator(function baseCompile (
   options
 ) {
   const ast = parse(template.trim(), options)
+  console.log('ast', ast)
   if (options.optimize !== false) {
     //优化，静态化
     optimize(ast, options)

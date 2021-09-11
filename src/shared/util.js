@@ -1,5 +1,7 @@
 export function noop (a, b, c) {}
 
+export const emptyObject = Object.freeze({})
+
 export function isUndef (v) {
   return v === undefined || v === null
 }
@@ -105,4 +107,22 @@ export function extend (to, _from) {
     to[key] = _from[key]
   }
   return to
+}
+
+
+export function isPromise (val) {
+  return (
+    isDef(val) &&
+    typeof val.then === 'function' &&
+    typeof val.catch === 'function'
+  )
+}
+
+export function remove (arr, item) {
+  if (arr.length) {
+    const index = arr.indexOf(item)
+    if (index > -1) {
+      return arr.splice(index, 1)
+    }
+  }
 }

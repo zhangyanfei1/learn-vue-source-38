@@ -91,4 +91,8 @@ import { queueWatcher } from './scheduler'
       // }
     }
   }
+
+  teardown () {
+    
+  }
  }

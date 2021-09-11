@@ -8,28 +8,49 @@
   <script src="../dist/vue.js"></script>
 </head>
 <body>
-  <div id="app">
-    <div></div>
+  <div id="app" class="container">
+    <div>{{gsd}}</div>
   </div>
   <script>
     const vm = new Vue({
       el: '#app',
       // template: '<div class="container" style="background-color: red;" @click="test">{{gsd}}</div>',
       // template: '<div class="aaa">{{gsd}}</div>',
-      components: {
-        'aaa': {
-          template: '<h1>我是一个child组件</h1>'
-        }
-      },
+      // components: {
+      //   'aaa': {
+      //     template: '<h1>我是一个child组件</h1>'
+      //   }
+      // },
       // render(h){
       //   return h('div',  { style: { color: 'red' }}, [ h('aaa', 'bcd')])
       // },
       data: {
         gsd: 'aaaccc'
       }
+      // async beforeCreate () {
+      //   await setTimeout(() => {
+      //     console.log('setTimeout')
+      // }, 1000);
+      // },
+      // created () {
+      //   console.log('created')
+      // },
+      // methods: {
+      //   test () {
+      //     setTimeout(() => {
+      //     console.log('setTimeout')
+      // }, 1000);
+      //   }
+      // }
     })
     vm.gsd = '123'
+    vm.gsd = 'aaaaaaa'
     console.log(vm.gsd)
   </script>
+  <style>
+    .container {
+      color: #f00;
+    }
+  </style>
 </body>
 </html>

@@ -18,3 +18,5 @@ warn = (msg, vm) => {
 generateComponentTrace = vm => {
 
 }
+
+export let formatComponentName = (noop)

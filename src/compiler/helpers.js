@@ -51,3 +51,28 @@ export function getBindingAttr (
     }
   }
 }
+
+
+export function addAttr (el, name, value, range, dynamic) {
+  //attrs 后面在生产render函数的时候用得到
+  const attrs = dynamic
+    ? (el.dynamicAttrs || (el.dynamicAttrs = []))
+    : (el.attrs || (el.attrs = []))
+  attrs.push(rangeSetItem({ name, value, dynamic }, range))
+  el.plain = false
+}
+
+function rangeSetItem (
+  item,
+  range
+) {
+  if (range) {
+    if (range.start != null) {
+      item.start = range.start
+    }
+    if (range.end != null) {
+      item.end = range.end
+    }
+  }
+  return item
+}

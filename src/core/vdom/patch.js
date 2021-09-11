@@ -7,13 +7,29 @@ import {
   isPrimitive
 } from '../util/index'
 
+
+export const emptyNode = new VNode('', {}, [])
+
+const hooks = ['create', 'activate', 'update', 'remove', 'destroy']
+
 function sameVnode (a, b) {
   
 }
 
 export function createPatchFunction (backend) {
+  let i, j
+  const cbs = {}
 
   const { modules, nodeOps } = backend
+
+  for (i = 0; i < hooks.length; ++i) {
+    cbs[hooks[i]] = []
+    for (j = 0; j < modules.length; ++j) {
+      if (isDef(modules[j][hooks[i]])) {
+        cbs[hooks[i]].push(modules[j][hooks[i]])
+      }
+    }
+  }
 
   function createElm (
     vnode,
@@ -48,7 +64,7 @@ export function createPatchFunction (backend) {
       } else {
         createChildren(vnode, children, insertedVnodeQueue)
         if (isDef(data)) {
-          // invokeCreateHooks(vnode, insertedVnodeQueue)
+          invokeCreateHooks(vnode, insertedVnodeQueue)
         }
         insert(parentElm, vnode.elm, refElm)
       }
@@ -57,6 +73,17 @@ export function createPatchFunction (backend) {
     } else {
       vnode.elm = nodeOps.createTextNode(vnode.text)
       insert(parentElm, vnode.elm, refElm)
+    }
+  }
+
+  function invokeCreateHooks (vnode, insertedVnodeQueue) {
+    for (let i = 0; i < cbs.create.length; ++i) {
+      cbs.create[i](emptyNode, vnode)
+    }
+    i = vnode.data.hook // Reuse variable
+    if (isDef(i)) {
+      if (isDef(i.create)) i.create(emptyNode, vnode)
+      if (isDef(i.insert)) insertedVnodeQueue.push(vnode)
     }
   }
 
@@ -129,7 +156,6 @@ export function createPatchFunction (backend) {
   }
 
   function insert (parent, elm, ref) {
-    debugger
     if (isDef(parent)) {
       if (isDef(ref)) {
         if (nodeOps.parentNode(ref) === parent) {
@@ -157,7 +183,6 @@ export function createPatchFunction (backend) {
   }
 
   function removeVnodes (vnodes, startIdx, endIdx) {
-    debugger
     for (; startIdx <= endIdx; ++startIdx) {
       const ch = vnodes[startIdx]
       if (isDef(ch)) {
@@ -185,7 +210,6 @@ export function createPatchFunction (backend) {
       if (isDef(rm)) {
 
       } else {
-        debugger
         rm = createRmCb(vnode.elm, listeners)
       }
       rm()
@@ -203,8 +227,7 @@ export function createPatchFunction (backend) {
   }
 
   return function patch (oldVnode, vnode, hydrating, removeOnly) {
-    debugger
-    if (isUndef(vnode)) {
+    if (isUndef(vnode)) { //在$destroy 调用的时候会这个逻辑
       if (isDef(oldVnode)) invokeDestroyHook(oldVnode)
       return
     }

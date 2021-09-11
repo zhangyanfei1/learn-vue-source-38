@@ -1,4 +1,5 @@
 export * from './element'
+export * from './class'
 
 /**
  * Query an element selector if it's not an element already.
